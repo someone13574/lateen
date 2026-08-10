@@ -2911,6 +2911,10 @@ dependencies = [
 name = "lateen"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "ashpd",
+ "chrono",
+ "futures-lite",
  "gpui",
  "gpui_platform",
  "rust-embed",

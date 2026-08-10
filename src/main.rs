@@ -1,13 +1,21 @@
 use gpui::prelude::*;
-use gpui::{TitlebarOptions, Window, WindowDecorations, WindowOptions, div, px, relative, size};
+use gpui::{
+    Entity, TitlebarOptions, Window, WindowDecorations, WindowOptions, div, px, relative, size,
+};
 
 use crate::assets::Assets;
+use crate::calendar::Calendar;
+use crate::clock::ClockFormat;
 use crate::theme::{ActiveTheme, Theme};
 use crate::titlebar::Titlebar;
 use crate::window::WindowFrame;
 
 mod assets;
 mod button;
+mod calendar;
+mod clock;
+mod grid;
+mod scrollbar;
 mod theme;
 mod titlebar;
 mod window;
@@ -15,7 +23,9 @@ mod window_control;
 
 const APP_NAME: &str = "Lateen";
 
-struct RootView {}
+struct RootView {
+    calendar: Entity<Calendar>,
+}
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -27,7 +37,8 @@ impl Render for RootView {
                 .font_family("Inter")
                 .line_height(relative(1.21))
                 .text_color(cx.theme().fg)
-                .child(Titlebar::new(APP_NAME)),
+                .child(Titlebar::new(APP_NAME))
+                .child(self.calendar.clone()),
         )
     }
 }
@@ -35,6 +46,7 @@ impl Render for RootView {
 fn main() {
     gpui_platform::application().with_assets(Assets).run(|cx| {
         Assets::load_fonts(cx).expect("failed to load embedded fonts");
+        ClockFormat::init(cx);
 
         let decorations = match gpui::guess_compositor() {
             "X11" => WindowDecorations::Server,
@@ -55,7 +67,9 @@ fn main() {
         cx.open_window(options, |window, cx| {
             Theme::init(window, cx);
 
-            cx.new(|_cx| RootView {})
+            cx.new(|cx| RootView {
+                calendar: cx.new(|_cx| Calendar::new()),
+            })
         })
         .unwrap();
     });
