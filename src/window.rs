@@ -1,7 +1,7 @@
-use gpui::prelude::FluentBuilder;
+use gpui::prelude::*;
 use gpui::{
-    App, BoxShadow, CursorStyle, Decorations, Div, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, RenderOnce, ResizeEdge, Styled, Tiling, Window, div, px,
+    App, BoxShadow, CursorStyle, Decorations, Div, MouseButton, Pixels, ResizeEdge, Tiling, Window,
+    div, px,
 };
 
 use crate::theme::ActiveTheme;
@@ -12,11 +12,25 @@ pub struct WindowFrame<C: IntoElement + 'static> {
 }
 
 impl<C: IntoElement + 'static> WindowFrame<C> {
-    const CLIENT_INSET: Pixels = px(36.0);
     const RESIZE_HANDLE_SIZE: Pixels = px(9.0);
+    const SHADOW_OFFSET_Y: Pixels = px(12.0);
+    const SHADOW_BLUR: Pixels = px(17.0);
+    const CONTACT_SHADOW_OFFSET_Y: Pixels = px(2.0);
+    const CONTACT_SHADOW_BLUR: Pixels = px(3.0);
 
     pub fn new(content: C) -> Self {
         Self { content }
+    }
+
+    fn client_inset() -> Pixels {
+        let reach = |offset_y: Pixels, blur: Pixels| offset_y + blur * 3.0;
+
+        reach(Self::SHADOW_OFFSET_Y, Self::SHADOW_BLUR)
+            .max(reach(
+                Self::CONTACT_SHADOW_OFFSET_Y,
+                Self::CONTACT_SHADOW_BLUR,
+            ))
+            .max(Self::RESIZE_HANDLE_SIZE)
     }
 
     fn resize_cursor(edge: ResizeEdge) -> CursorStyle {
@@ -40,15 +54,17 @@ impl<C: IntoElement + 'static> WindowFrame<C> {
 
 impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let client_inset = Self::client_inset();
+
         let tiling = match window.window_decorations() {
             Decorations::Client { tiling } => {
-                window.set_client_inset(Self::CLIENT_INSET);
+                window.set_client_inset(client_inset);
                 tiling
             }
             Decorations::Server => Tiling::tiled(),
         };
 
-        let inset = |tiled| if tiled { px(0.0) } else { Self::CLIENT_INSET };
+        let inset = |tiled| if tiled { px(0.0) } else { client_inset };
         let (top_inset, bottom_inset) = (inset(tiling.top), inset(tiling.bottom));
         let (left_inset, right_inset) = (inset(tiling.left), inset(tiling.right));
 
@@ -66,46 +82,36 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
                 div()
                     .size_full()
                     .overflow_hidden()
-                    .bg(cx.theme().window_background)
+                    .bg(cx.theme().window_bg)
                     .border_color(cx.theme().window_border)
-                    .when(!tiling.top, |body| {
-                        body.border_t(cx.theme().window_border_width)
-                    })
-                    .when(!tiling.bottom, |body| {
-                        body.border_b(cx.theme().window_border_width)
-                    })
-                    .when(!tiling.left, |body| {
-                        body.border_l(cx.theme().window_border_width)
-                    })
-                    .when(!tiling.right, |body| {
-                        body.border_r(cx.theme().window_border_width)
-                    })
-                    .when(!tiling.top && !tiling.left, |body| {
-                        body.rounded_tl(cx.theme().window_corner_radius)
-                    })
+                    .when(!tiling.top, |body| body.border_t(px(1.0)))
+                    .when(!tiling.bottom, |body| body.border_b(px(1.0)))
+                    .when(!tiling.left, |body| body.border_l(px(1.0)))
+                    .when(!tiling.right, |body| body.border_r(px(1.0)))
+                    .when(!tiling.top && !tiling.left, |body| body.rounded_tl(px(9.0)))
                     .when(!tiling.top && !tiling.right, |body| {
-                        body.rounded_tr(cx.theme().window_corner_radius)
+                        body.rounded_tr(px(9.0))
                     })
                     .when(!tiling.bottom && !tiling.left, |body| {
-                        body.rounded_bl(cx.theme().window_corner_radius)
+                        body.rounded_bl(px(9.0))
                     })
                     .when(!tiling.bottom && !tiling.right, |body| {
-                        body.rounded_br(cx.theme().window_corner_radius)
+                        body.rounded_br(px(9.0))
                     })
                     .when(!tiling.is_tiled(), |body| {
                         body.shadow(vec![
                             BoxShadow::new(
                                 px(0.0),
-                                cx.theme().window_shadow_offset_y,
+                                Self::SHADOW_OFFSET_Y,
                                 cx.theme().window_shadow.into(),
                             )
-                            .blur_radius(cx.theme().window_shadow_blur),
+                            .blur_radius(Self::SHADOW_BLUR),
                             BoxShadow::new(
                                 px(0.0),
-                                cx.theme().window_contact_shadow_offset_y,
+                                Self::CONTACT_SHADOW_OFFSET_Y,
                                 cx.theme().window_contact_shadow.into(),
                             )
-                            .blur_radius(cx.theme().window_contact_shadow_blur),
+                            .blur_radius(Self::CONTACT_SHADOW_BLUR),
                         ])
                     })
                     .child(self.content),

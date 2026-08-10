@@ -1,47 +1,60 @@
-use gpui::{App, Context, Global, Pixels, Rgba, Window, WindowAppearance, px, rgb, rgba};
+use gpui::prelude::*;
+use gpui::{App, Global, Rgba, Window, WindowAppearance, rgb, rgba};
 
 #[derive(Clone, Copy)]
 pub struct Theme {
-    pub window_background: Rgba,
+    pub fg: Rgba,
+    pub titlebar_bg: Rgba,
+    pub titlebar_border: Rgba,
+    pub titlebar_control_fg: Rgba,
+    pub titlebar_control_hover_bg: Rgba,
+    pub titlebar_close_hover_bg: Rgba,
+    pub titlebar_close_hover_fg: Rgba,
+    pub button_bg: Rgba,
+    pub button_border: Rgba,
+    pub button_hover_bg: Rgba,
+    pub window_bg: Rgba,
     pub window_border: Rgba,
-    pub window_border_width: Pixels,
-    pub window_corner_radius: Pixels,
     pub window_shadow: Rgba,
-    pub window_shadow_offset_y: Pixels,
-    pub window_shadow_blur: Pixels,
     pub window_contact_shadow: Rgba,
-    pub window_contact_shadow_offset_y: Pixels,
-    pub window_contact_shadow_blur: Pixels,
 }
 
 impl Theme {
     pub fn light() -> Self {
         Self {
-            window_background: rgb(0xf4f4f2),
+            fg: rgb(0x1c1c1a),
+            titlebar_bg: rgb(0xfbfbfa),
+            titlebar_border: rgb(0xd5d5d0),
+            titlebar_control_fg: rgb(0x54544e),
+            titlebar_control_hover_bg: rgb(0xdededa),
+            titlebar_close_hover_bg: rgb(0xc8402f),
+            titlebar_close_hover_fg: rgb(0xffffff),
+            button_bg: rgb(0xffffff),
+            button_border: rgb(0xcfcfca),
+            button_hover_bg: rgb(0xf0f0ed),
+            window_bg: rgb(0xf4f4f2),
             window_border: rgb(0xb4b4ae),
-            window_border_width: px(1.0),
-            window_corner_radius: px(9.0),
             window_shadow: rgba(0x00000038),
-            window_shadow_offset_y: px(12.0),
-            window_shadow_blur: px(17.0),
             window_contact_shadow: rgba(0x0000001f),
-            window_contact_shadow_offset_y: px(2.0),
-            window_contact_shadow_blur: px(3.0),
         }
     }
 
     pub fn dark() -> Self {
         Self {
-            window_background: rgb(0x1a1c1f),
+            fg: rgb(0xe7e8ea),
+            titlebar_bg: rgb(0x232629),
+            titlebar_border: rgb(0x33373b),
+            titlebar_control_fg: rgb(0xb4b8bd),
+            titlebar_control_hover_bg: rgb(0x31353a),
+            titlebar_close_hover_bg: rgb(0xc8402f),
+            titlebar_close_hover_fg: rgb(0x10131a),
+            button_bg: rgb(0x26292d),
+            button_border: rgb(0x3a3f45),
+            button_hover_bg: rgb(0x2d3136),
+            window_bg: rgb(0x1a1c1f),
             window_border: rgb(0x000000),
-            window_border_width: px(1.0),
-            window_corner_radius: px(9.0),
             window_shadow: rgba(0x00000038),
-            window_shadow_offset_y: px(12.0),
-            window_shadow_blur: px(17.0),
             window_contact_shadow: rgba(0x0000001f),
-            window_contact_shadow_offset_y: px(2.0),
-            window_contact_shadow_blur: px(3.0),
         }
     }
 

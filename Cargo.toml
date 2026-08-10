@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-gpui = { package = "gpui", git = "https://github.com/gpui-ce/gpui-ce" }
-gpui_platform = { git = "https://github.com/gpui-ce/gpui-ce", features = ["font-kit", "wayland", "x11"] }
+gpui = { package = "gpui", git = "https://github.com/someone13574/gpui-ce", branch = "swash-hinting-bug", version = "0.2.2" }
+gpui_platform = { git = "https://github.com/someone13574/gpui-ce", features = ["font-kit", "wayland", "x11"], branch = "swash-hinting-bug", version = "0.1.0" }
+rust-embed = { version = "8.12.0", features = ["debug-embed", "include-exclude"] }

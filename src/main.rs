@@ -1,28 +1,41 @@
-use gpui::{
-    App, AppContext, Render, Styled, TitlebarOptions, WindowDecorations, WindowOptions, div, px,
-    size,
-};
+use gpui::prelude::*;
+use gpui::{TitlebarOptions, Window, WindowDecorations, WindowOptions, div, px, relative, size};
 
-use crate::theme::Theme;
+use crate::assets::Assets;
+use crate::theme::{ActiveTheme, Theme};
+use crate::titlebar::Titlebar;
 use crate::window::WindowFrame;
 
+mod assets;
+mod button;
 mod theme;
+mod titlebar;
 mod window;
+mod window_control;
+
+const APP_NAME: &str = "Lateen";
 
 struct RootView {}
 
 impl Render for RootView {
-    fn render(
-        &mut self,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::prelude::Context<Self>,
-    ) -> impl gpui::prelude::IntoElement {
-        WindowFrame::new(div().size_full())
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        WindowFrame::new(
+            div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .font_family("Inter")
+                .line_height(relative(1.21))
+                .text_color(cx.theme().fg)
+                .child(Titlebar::new(APP_NAME)),
+        )
     }
 }
 
 fn main() {
-    gpui_platform::application().run(|cx: &mut App| {
+    gpui_platform::application().with_assets(Assets).run(|cx| {
+        Assets::load_fonts(cx).expect("failed to load embedded fonts");
+
         let decorations = match gpui::guess_compositor() {
             "X11" => WindowDecorations::Server,
             _ => WindowDecorations::Client,
@@ -30,11 +43,12 @@ fn main() {
 
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("Lateen".into()),
+                title: Some(APP_NAME.into()),
                 ..Default::default()
             }),
             window_decorations: Some(decorations),
             window_min_size: Some(size(px(480.0), px(360.0))),
+            app_id: Some("com.github.someone13574.lateen".to_string()),
             ..Default::default()
         };
 
