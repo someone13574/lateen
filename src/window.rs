@@ -13,6 +13,7 @@ pub struct WindowFrame<C: IntoElement + 'static> {
 
 impl<C: IntoElement + 'static> WindowFrame<C> {
     const RESIZE_HANDLE_SIZE: Pixels = px(9.0);
+    const RESIZE_CORNER_REACH: Pixels = px(9.0);
     const SHADOW_OFFSET_Y: Pixels = px(12.0);
     const SHADOW_BLUR: Pixels = px(17.0);
     const CONTACT_SHADOW_OFFSET_Y: Pixels = px(2.0);
@@ -50,6 +51,17 @@ impl<C: IntoElement + 'static> WindowFrame<C> {
                 window.start_window_resize(edge);
             })
     }
+
+    fn corner_handles(edge: ResizeEdge, place: impl Fn(Div, Pixels) -> Div) -> [Div; 2] {
+        [
+            place(Self::resize_handle(edge), px(0.0))
+                .w(Self::RESIZE_HANDLE_SIZE + Self::RESIZE_CORNER_REACH)
+                .h(Self::RESIZE_HANDLE_SIZE),
+            place(Self::resize_handle(edge), Self::RESIZE_HANDLE_SIZE)
+                .w(Self::RESIZE_HANDLE_SIZE)
+                .h(Self::RESIZE_CORNER_REACH),
+        ]
+    }
 }
 
 impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
@@ -71,6 +83,22 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
         let handle_offset = |tiled| (inset(tiled) - Self::RESIZE_HANDLE_SIZE).max(px(0.0));
         let (top_handle, bottom_handle) = (handle_offset(tiling.top), handle_offset(tiling.bottom));
         let (left_handle, right_handle) = (handle_offset(tiling.left), handle_offset(tiling.right));
+
+        let corner_clearance = |tiled| {
+            if tiled {
+                px(0.0)
+            } else {
+                client_inset + Self::RESIZE_CORNER_REACH
+            }
+        };
+        let (top_clearance, bottom_clearance) = (
+            corner_clearance(tiling.top),
+            corner_clearance(tiling.bottom),
+        );
+        let (left_clearance, right_clearance) = (
+            corner_clearance(tiling.left),
+            corner_clearance(tiling.right),
+        );
 
         let viewport = window.viewport_size();
         window.set_input_region(Some(&[Bounds {
@@ -129,8 +157,8 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
                 backdrop.child(
                     Self::resize_handle(ResizeEdge::Top)
                         .top(top_handle)
-                        .left(left_inset)
-                        .right(right_inset)
+                        .left(left_clearance)
+                        .right(right_clearance)
                         .h(Self::RESIZE_HANDLE_SIZE),
                 )
             })
@@ -138,8 +166,8 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
                 backdrop.child(
                     Self::resize_handle(ResizeEdge::Bottom)
                         .bottom(bottom_handle)
-                        .left(left_inset)
-                        .right(right_inset)
+                        .left(left_clearance)
+                        .right(right_clearance)
                         .h(Self::RESIZE_HANDLE_SIZE),
                 )
             })
@@ -147,8 +175,8 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
                 backdrop.child(
                     Self::resize_handle(ResizeEdge::Left)
                         .left(left_handle)
-                        .top(top_inset)
-                        .bottom(bottom_inset)
+                        .top(top_clearance)
+                        .bottom(bottom_clearance)
                         .w(Self::RESIZE_HANDLE_SIZE),
                 )
             })
@@ -156,42 +184,40 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
                 backdrop.child(
                     Self::resize_handle(ResizeEdge::Right)
                         .right(right_handle)
-                        .top(top_inset)
-                        .bottom(bottom_inset)
+                        .top(top_clearance)
+                        .bottom(bottom_clearance)
                         .w(Self::RESIZE_HANDLE_SIZE),
                 )
             })
             .when(!tiling.top && !tiling.left, |backdrop| {
-                backdrop.child(
-                    Self::resize_handle(ResizeEdge::TopLeft)
-                        .top(top_handle)
-                        .left(left_handle)
-                        .size(Self::RESIZE_HANDLE_SIZE),
-                )
+                backdrop.children(Self::corner_handles(
+                    ResizeEdge::TopLeft,
+                    |handle, along_edge| handle.top(top_handle + along_edge).left(left_handle),
+                ))
             })
             .when(!tiling.top && !tiling.right, |backdrop| {
-                backdrop.child(
-                    Self::resize_handle(ResizeEdge::TopRight)
-                        .top(top_handle)
-                        .right(right_handle)
-                        .size(Self::RESIZE_HANDLE_SIZE),
-                )
+                backdrop.children(Self::corner_handles(
+                    ResizeEdge::TopRight,
+                    |handle, along_edge| handle.top(top_handle + along_edge).right(right_handle),
+                ))
             })
             .when(!tiling.bottom && !tiling.left, |backdrop| {
-                backdrop.child(
-                    Self::resize_handle(ResizeEdge::BottomLeft)
-                        .bottom(bottom_handle)
-                        .left(left_handle)
-                        .size(Self::RESIZE_HANDLE_SIZE),
-                )
+                backdrop.children(Self::corner_handles(
+                    ResizeEdge::BottomLeft,
+                    |handle, along_edge| {
+                        handle.bottom(bottom_handle + along_edge).left(left_handle)
+                    },
+                ))
             })
             .when(!tiling.bottom && !tiling.right, |backdrop| {
-                backdrop.child(
-                    Self::resize_handle(ResizeEdge::BottomRight)
-                        .bottom(bottom_handle)
-                        .right(right_handle)
-                        .size(Self::RESIZE_HANDLE_SIZE),
-                )
+                backdrop.children(Self::corner_handles(
+                    ResizeEdge::BottomRight,
+                    |handle, along_edge| {
+                        handle
+                            .bottom(bottom_handle + along_edge)
+                            .right(right_handle)
+                    },
+                ))
             })
     }
 }
