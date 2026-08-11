@@ -193,7 +193,7 @@ impl Theme {
             titlebar_control_fg: rgb(0xb4b8bd),
             titlebar_control_hover_bg: rgb(0x31353a),
             titlebar_close_hover_bg: rgb(0xc8402f),
-            titlebar_close_hover_fg: rgb(0x10131a),
+            titlebar_close_hover_fg: rgb(0xffffff),
             button_bg: rgb(0x26292d),
             button_border: rgb(0x3a3f45),
             button_hover_bg: rgb(0x2d3136),
