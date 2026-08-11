@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::{
-    App, BoxShadow, CursorStyle, Decorations, Div, MouseButton, Pixels, ResizeEdge, Tiling, Window,
-    div, px,
+    App, Bounds, BoxShadow, CursorStyle, Decorations, Div, MouseButton, Pixels, ResizeEdge, Tiling,
+    Window, div, point, px, size,
 };
 
 use crate::theme::ActiveTheme;
@@ -71,6 +71,15 @@ impl<C: IntoElement + 'static> RenderOnce for WindowFrame<C> {
         let handle_offset = |tiled| (inset(tiled) - Self::RESIZE_HANDLE_SIZE).max(px(0.0));
         let (top_handle, bottom_handle) = (handle_offset(tiling.top), handle_offset(tiling.bottom));
         let (left_handle, right_handle) = (handle_offset(tiling.left), handle_offset(tiling.right));
+
+        let viewport = window.viewport_size();
+        window.set_input_region(Some(&[Bounds {
+            origin: point(left_handle, top_handle),
+            size: size(
+                viewport.width - left_handle - right_handle,
+                viewport.height - top_handle - bottom_handle,
+            ),
+        }]));
 
         div()
             .size_full()
