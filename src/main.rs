@@ -4,17 +4,21 @@ use gpui::{
 };
 
 use crate::assets::Assets;
+use crate::bottom_bar::BottomBar;
 use crate::calendar::Calendar;
-use crate::clock::ClockFormat;
+use crate::clock::{Clock, ClockFormat};
 use crate::theme::{ActiveTheme, Theme};
 use crate::titlebar::Titlebar;
 use crate::window::WindowFrame;
 
 mod assets;
 mod block;
+mod bottom_bar;
 mod button;
 mod calendar;
 mod clock;
+mod cursor;
+mod day_columns;
 mod grid;
 mod schedule;
 mod scrollbar;
@@ -27,6 +31,7 @@ const APP_NAME: &str = "Lateen";
 
 struct RootView {
     calendar: Entity<Calendar>,
+    bottom_bar: Entity<BottomBar>,
 }
 
 impl Render for RootView {
@@ -40,7 +45,8 @@ impl Render for RootView {
                 .line_height(relative(1.21))
                 .text_color(cx.theme().fg)
                 .child(Titlebar::new(APP_NAME))
-                .child(self.calendar.clone()),
+                .child(self.calendar.clone())
+                .child(self.bottom_bar.clone()),
         )
     }
 }
@@ -48,6 +54,7 @@ impl Render for RootView {
 fn main() {
     gpui_platform::application().with_assets(Assets).run(|cx| {
         Assets::load_fonts(cx).expect("failed to load embedded fonts");
+        Clock::init(cx);
         ClockFormat::init(cx);
 
         let decorations = match gpui::guess_compositor() {
@@ -70,7 +77,8 @@ fn main() {
             Theme::init(window, cx);
 
             cx.new(|cx| RootView {
-                calendar: cx.new(|_cx| Calendar::new()),
+                calendar: cx.new(Calendar::new),
+                bottom_bar: cx.new(BottomBar::new),
             })
         })
         .unwrap();

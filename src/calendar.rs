@@ -1,14 +1,18 @@
-use chrono::{Duration, Local, NaiveDate, Timelike};
+use std::time::Duration;
+
+use chrono::{Days, NaiveDate};
 use gpui::prelude::*;
 use gpui::{
-    App, Axis, Bounds, Corners, Decorations, Div, FontWeight, PinchEvent, Pixels, ScrollHandle,
-    ScrollWheelEvent, Stateful, Text, Tiling, Window, div, point, px, size,
+    App, Axis, Bounds, Corners, Decorations, Div, Entity, FontWeight, PinchEvent, Pixels,
+    ScrollHandle, ScrollWheelEvent, Stateful, StyleRefinement, Text, Tiling, Window, div, point,
+    px, size,
 };
 
-use crate::block::BlockView;
-use crate::clock::ClockFormat;
+use crate::block::Block;
+use crate::clock::{Clock, ClockFormat};
+use crate::cursor::Cursor;
+use crate::day_columns::DayColumns;
 use crate::grid::Grid;
-use crate::schedule::Schedule;
 use crate::scrollbar::Scrollbar;
 use crate::theme::ActiveTheme;
 
@@ -16,11 +20,12 @@ pub struct Calendar {
     horizontal: ScrollHandle,
     vertical: ScrollHandle,
     day_height: Pixels,
-    schedule: Schedule,
+    day_columns: Entity<DayColumns>,
 }
 
 impl Calendar {
     const GUTTER_WIDTH: Pixels = px(53.0);
+    const GUTTER_BORDER: Pixels = px(1.0);
     const HEADER_HEIGHT: Pixels = px(47.0);
     const MIN_LABEL_SPACING: Pixels = px(66.0);
     const CORNER_RADIUS: Pixels = px(8.0);
@@ -29,12 +34,15 @@ impl Calendar {
     const DAYS: usize = 14;
     const ZOOM_RATE: f32 = 0.002;
 
-    pub fn new() -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let day_height = px(1440.0);
+        Self::follow_cursor(cx);
+
         Self {
             horizontal: ScrollHandle::new(),
             vertical: ScrollHandle::new(),
-            day_height: px(1440.0),
-            schedule: Schedule::sample(Self::DAYS as i32),
+            day_height,
+            day_columns: cx.new(|_cx| DayColumns::new(Self::DAYS, day_height)),
         }
     }
 
@@ -42,6 +50,27 @@ impl Calendar {
         self.day_height
             .clamp(Self::MIN_DAY_HEIGHT, Self::MAX_DAY_HEIGHT)
             .max(self.vertical.bounds().size.height)
+    }
+
+    fn follow_cursor(cx: &mut Context<Self>) {
+        cx.spawn(async move |calendar, cx| {
+            while let Ok(interval) =
+                calendar.read_with(cx, |calendar, _cx| calendar.cursor_interval())
+            {
+                cx.background_executor().timer(interval).await;
+
+                if calendar.update(cx, |_calendar, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn cursor_interval(&self) -> Duration {
+        let seconds_per_pixel = (Block::MINUTES_PER_DAY * 60) as f32 / f32::from(self.day_height());
+
+        Duration::from_secs_f32(seconds_per_pixel)
     }
 
     fn zoom(&mut self, event: &ScrollWheelEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -76,7 +105,7 @@ impl Calendar {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> Div {
-        let today = Local::now().date_naive();
+        let today = cx.global::<Clock>().now().date_naive();
 
         div()
             .flex()
@@ -86,7 +115,7 @@ impl Calendar {
                 div()
                     .flex_none()
                     .w(Self::GUTTER_WIDTH)
-                    .border_r(px(1.0))
+                    .border_r(Self::GUTTER_BORDER)
                     .border_color(cx.theme().gutter_border)
                     .child(
                         div()
@@ -118,7 +147,7 @@ impl Calendar {
 
     fn column_header(day: usize, today: NaiveDate, cx: &mut Context<Self>) -> Div {
         let theme = *cx.theme();
-        let date = today + Duration::days(day as i64);
+        let date = today + Days::new(day as u64);
         let (bg, fg, sub_fg) = if day == 0 {
             (
                 theme.today_header_bg,
@@ -212,7 +241,7 @@ impl Calendar {
             .restrict_scroll_to_axis()
             .track_scroll(&self.vertical)
             .bg(cx.theme().gutter_bg)
-            .border_r(px(1.0))
+            .border_r(Self::GUTTER_BORDER)
             .border_color(cx.theme().gutter_border)
             .when(!tiling.bottom && !tiling.left, |gutter| {
                 gutter.rounded_bl(Self::CORNER_RADIUS)
@@ -233,7 +262,8 @@ impl Calendar {
             )
     }
 
-    fn grid(&self, tiling: Tiling) -> Grid {
+    fn content(&self, tiling: Tiling, cx: &mut Context<Self>) -> Div {
+        let day_height = self.day_height();
         let corners = Corners {
             bottom_right: if tiling.bottom || tiling.right {
                 px(0.0)
@@ -243,23 +273,39 @@ impl Calendar {
             ..Default::default()
         };
 
-        Grid::new(Self::DAYS, self.day_height(), corners)
+        self.day_columns.update(cx, |columns, _cx| {
+            columns.set_day_height(day_height);
+            columns.set_corners(corners);
+        });
+
+        div()
+            .relative()
+            .flex_none()
+            .w(Grid::COLUMN_WIDTH * Self::DAYS)
+            .h(day_height)
+            .child(
+                self.day_columns.clone().cached(
+                    StyleRefinement::default()
+                        .w(Grid::COLUMN_WIDTH * Self::DAYS)
+                        .h(day_height),
+                ),
+            )
     }
 
-    fn blocks(&self) -> Vec<BlockView> {
-        let day_height = self.day_height();
-        let now = Local::now().time().num_seconds_from_midnight() as i32 / 60;
+    fn cursor(&self, cx: &App) -> Cursor {
+        let column = Bounds {
+            origin: point(Self::GUTTER_WIDTH, px(0.0)),
+            size: size(Grid::COLUMN_WIDTH - Grid::GUIDE_WIDTH, self.day_height()),
+        };
 
-        (0..Self::DAYS)
-            .flat_map(|day| {
-                let area = Bounds {
-                    origin: point(Grid::COLUMN_WIDTH * day, px(0.0)),
-                    size: size(Grid::COLUMN_WIDTH - Grid::GUIDE_WIDTH, day_height),
-                };
-
-                self.schedule.day(day as i32, area, now)
-            })
-            .collect()
+        Cursor::new(
+            column,
+            cx.global::<Clock>().minute_of_day(),
+            Self::GUTTER_WIDTH,
+            Self::GUTTER_BORDER,
+            &self.horizontal,
+            &self.vertical,
+        )
     }
 }
 
@@ -309,17 +355,19 @@ impl Render for Calendar {
                                     .overflow_y_scroll()
                                     .restrict_scroll_to_axis()
                                     .track_scroll(&self.vertical)
-                                    .child(
-                                        div()
-                                            .relative()
-                                            .flex_none()
-                                            .w(Grid::COLUMN_WIDTH * Self::DAYS)
-                                            .h(self.day_height())
-                                            .child(self.grid(tiling))
-                                            .children(self.blocks()),
-                                    ),
+                                    .child(self.content(tiling, cx)),
                             ),
                     ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(Self::HEADER_HEIGHT)
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .overflow_hidden()
+                    .child(self.cursor(cx)),
             )
             .child(
                 div()

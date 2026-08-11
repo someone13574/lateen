@@ -1,5 +1,7 @@
 use ashpd::desktop::settings::Settings;
+use chrono::{DateTime, Duration, Local, NaiveTime, Timelike};
 use futures_lite::StreamExt;
+use gpui::prelude::*;
 use gpui::{App, Global, TaskExt};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -51,6 +53,20 @@ impl ClockFormat {
         }
     }
 
+    pub fn second_label(self, time: NaiveTime) -> String {
+        let (hour, minute, second) = (time.hour(), time.minute(), time.second());
+
+        match self {
+            Self::TwelveHour => {
+                let clock = if hour % 12 == 0 { 12 } else { hour % 12 };
+                let period = if hour < 12 { "am" } else { "pm" };
+
+                format!("{clock}:{minute:02}:{second:02} {period}")
+            }
+            Self::TwentyFourHour => format!("{hour:02}:{minute:02}:{second:02}"),
+        }
+    }
+
     pub fn hour_label(self, hour: usize) -> String {
         match self {
             Self::TwelveHour => {
@@ -78,3 +94,36 @@ impl ClockFormat {
 }
 
 impl Global for ClockFormat {}
+
+#[derive(Clone, Copy)]
+pub struct Clock {
+    offset: Duration,
+}
+
+impl Clock {
+    pub fn init(cx: &mut App) {
+        cx.set_global(Self {
+            offset: Duration::zero(),
+        });
+    }
+
+    pub fn now(&self) -> DateTime<Local> {
+        Local::now() + self.offset
+    }
+
+    pub fn minute_of_day(&self) -> f32 {
+        self.now().num_seconds_from_midnight() as f32 / 60.0
+    }
+
+    pub fn shift(minutes: i64, cx: &mut App) {
+        cx.update_global::<Self, _>(|clock, _cx| clock.offset += Duration::minutes(minutes));
+        cx.refresh_windows();
+    }
+
+    pub fn reset(cx: &mut App) {
+        cx.update_global::<Self, _>(|clock, _cx| clock.offset = Duration::zero());
+        cx.refresh_windows();
+    }
+}
+
+impl Global for Clock {}
