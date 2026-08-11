@@ -1,12 +1,14 @@
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Duration, Local, NaiveDate, Timelike};
 use gpui::prelude::*;
 use gpui::{
-    App, Axis, Corners, Decorations, Div, FontWeight, PinchEvent, Pixels, ScrollHandle,
-    ScrollWheelEvent, Stateful, Text, Tiling, Window, div, point, px,
+    App, Axis, Bounds, Corners, Decorations, Div, FontWeight, PinchEvent, Pixels, ScrollHandle,
+    ScrollWheelEvent, Stateful, Text, Tiling, Window, div, point, px, size,
 };
 
+use crate::block::BlockView;
 use crate::clock::ClockFormat;
 use crate::grid::Grid;
+use crate::schedule::Schedule;
 use crate::scrollbar::Scrollbar;
 use crate::theme::ActiveTheme;
 
@@ -14,6 +16,7 @@ pub struct Calendar {
     horizontal: ScrollHandle,
     vertical: ScrollHandle,
     day_height: Pixels,
+    schedule: Schedule,
 }
 
 impl Calendar {
@@ -31,6 +34,7 @@ impl Calendar {
             horizontal: ScrollHandle::new(),
             vertical: ScrollHandle::new(),
             day_height: px(1440.0),
+            schedule: Schedule::sample(Self::DAYS as i32),
         }
     }
 
@@ -241,6 +245,22 @@ impl Calendar {
 
         Grid::new(Self::DAYS, self.day_height(), corners)
     }
+
+    fn blocks(&self) -> Vec<BlockView> {
+        let day_height = self.day_height();
+        let now = Local::now().time().num_seconds_from_midnight() as i32 / 60;
+
+        (0..Self::DAYS)
+            .flat_map(|day| {
+                let area = Bounds {
+                    origin: point(Grid::COLUMN_WIDTH * day, px(0.0)),
+                    size: size(Grid::COLUMN_WIDTH - Grid::GUIDE_WIDTH, day_height),
+                };
+
+                self.schedule.day(day as i32, area, now)
+            })
+            .collect()
+    }
 }
 
 impl Render for Calendar {
@@ -289,7 +309,15 @@ impl Render for Calendar {
                                     .overflow_y_scroll()
                                     .restrict_scroll_to_axis()
                                     .track_scroll(&self.vertical)
-                                    .child(self.grid(tiling)),
+                                    .child(
+                                        div()
+                                            .relative()
+                                            .flex_none()
+                                            .w(Grid::COLUMN_WIDTH * Self::DAYS)
+                                            .h(self.day_height())
+                                            .child(self.grid(tiling))
+                                            .children(self.blocks()),
+                                    ),
                             ),
                     ),
             )

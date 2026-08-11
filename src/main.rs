@@ -11,10 +11,12 @@ use crate::titlebar::Titlebar;
 use crate::window::WindowFrame;
 
 mod assets;
+mod block;
 mod button;
 mod calendar;
 mod clock;
 mod grid;
+mod schedule;
 mod scrollbar;
 mod theme;
 mod titlebar;

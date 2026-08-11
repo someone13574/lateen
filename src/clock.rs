@@ -36,6 +36,21 @@ impl ClockFormat {
         .detach_and_log_err(cx);
     }
 
+    pub fn time_label(self, minutes: i32) -> String {
+        let minutes = minutes.rem_euclid(24 * 60);
+        let (hour, minute) = (minutes / 60, minutes % 60);
+
+        match self {
+            Self::TwelveHour => {
+                let clock = if hour % 12 == 0 { 12 } else { hour % 12 };
+                let period = if hour < 12 { "am" } else { "pm" };
+
+                format!("{clock}:{minute:02} {period}")
+            }
+            Self::TwentyFourHour => format!("{hour:02}:{minute:02}"),
+        }
+    }
+
     pub fn hour_label(self, hour: usize) -> String {
         match self {
             Self::TwelveHour => {
