@@ -60,7 +60,7 @@ impl<'a> Planner<'a> {
         let tasks = self.tasks;
         let mut blocks = Vec::new();
 
-        for task in tasks {
+        for (index, task) in tasks.iter().enumerate() {
             let TaskKind::Fixed { start, duration } = task.kind else {
                 continue;
             };
@@ -73,7 +73,7 @@ impl<'a> Planner<'a> {
                 let segments = Self::segments(task, duration, None);
                 let block_start = day * Block::MINUTES_PER_DAY + start - task.prep;
                 self.reserve(block_start, Self::span(&segments), task.priority);
-                blocks.push(Self::block(task, block_start, segments));
+                blocks.push(Self::block(index, task, block_start, segments));
             }
         }
 
@@ -84,7 +84,8 @@ impl<'a> Planner<'a> {
         let mut instances: Vec<_> = self
             .tasks
             .iter()
-            .flat_map(|task| self.task_instances(task))
+            .enumerate()
+            .flat_map(|(index, task)| self.task_instances(index, task))
             .collect();
 
         instances.sort_by_key(|instance| {
@@ -99,7 +100,7 @@ impl<'a> Planner<'a> {
         instances
     }
 
-    fn task_instances(&self, task: &'a Task) -> Vec<Instance<'a>> {
+    fn task_instances(&self, index: usize, task: &'a Task) -> Vec<Instance<'a>> {
         let TaskKind::Flexible(flexible) = &task.kind else {
             return Vec::new();
         };
@@ -108,16 +109,23 @@ impl<'a> Planner<'a> {
             Repeat::Once {
                 earliest_day,
                 deadline_day,
-            } => vec![self.instance(task, flexible, earliest_day..deadline_day + 1)],
+            } => vec![self.instance(index, task, flexible, earliest_day..deadline_day + 1)],
             Repeat::Daily => (0..self.horizon)
                 .filter(|day| self.occurs_on(task, *day))
-                .map(|day| self.instance(task, flexible, day..day + 1))
+                .map(|day| self.instance(index, task, flexible, day..day + 1))
                 .collect(),
         }
     }
 
-    fn instance(&self, task: &'a Task, flexible: &'a Flexible, days: Range<i32>) -> Instance<'a> {
+    fn instance(
+        &self,
+        index: usize,
+        task: &'a Task,
+        flexible: &'a Flexible,
+        days: Range<i32>,
+    ) -> Instance<'a> {
         Instance {
+            index,
             task,
             flexible,
             start: days.start * Block::MINUTES_PER_DAY,
@@ -455,8 +463,8 @@ impl<'a> Planner<'a> {
         merged
     }
 
-    fn block(task: &Task, start: i32, segments: Vec<Segment>) -> Block {
-        let block = Block::new(start, task.color, task.title.clone(), segments);
+    fn block(index: usize, task: &Task, start: i32, segments: Vec<Segment>) -> Block {
+        let block = Block::new(index, start, task.title.clone(), segments);
 
         match &task.place {
             Some(place) => block.at(place.clone()),
@@ -502,6 +510,7 @@ struct Reservation {
 }
 
 struct Instance<'a> {
+    index: usize,
     task: &'a Task,
     flexible: &'a Flexible,
     start: i32,
@@ -518,7 +527,9 @@ struct Session {
 
 impl Session {
     fn block(self, instances: &[Instance]) -> Block {
-        Planner::block(instances[self.instance].task, self.start, self.segments)
+        let instance = &instances[self.instance];
+
+        Planner::block(instance.index, instance.task, self.start, self.segments)
     }
 
     fn end(&self) -> i32 {

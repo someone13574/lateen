@@ -17,6 +17,7 @@ mod bottom_bar;
 mod button;
 mod calendar;
 mod clock;
+mod colorer;
 mod cursor;
 mod day_columns;
 mod grid;

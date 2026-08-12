@@ -8,7 +8,7 @@ use crate::theme::BlockColor;
 pub struct Task {
     pub title: SharedString,
     pub place: Option<SharedString>,
-    pub color: BlockColor,
+    pub color: Option<BlockColor>,
     pub days: Vec<Weekday>,
     pub priority: Priority,
     pub prep: i32,
@@ -41,7 +41,6 @@ impl Task {
         vec![
             Self::fixed(
                 "Calculus III lecture",
-                BlockColor::Blue,
                 vec![Weekday::Mon, Weekday::Wed, Weekday::Fri],
                 10 * 60,
                 90,
@@ -49,26 +48,13 @@ impl Task {
             .at("Maths 210")
             .priority(Priority::High)
             .transitions(20, 5),
-            Self::fixed(
-                "Physics lab",
-                BlockColor::Blue,
-                vec![Weekday::Tue],
-                14 * 60,
-                180,
-            )
-            .at("Science block B")
-            .priority(Priority::High)
-            .transitions(20, 10),
-            Self::fixed(
-                "Research standup",
-                BlockColor::Slate,
-                weekdays(),
-                9 * 60 + 15,
-                15,
-            ),
+            Self::fixed("Physics lab", vec![Weekday::Tue], 14 * 60, 180)
+                .at("Science block B")
+                .priority(Priority::High)
+                .transitions(20, 10),
+            Self::fixed("Research standup", weekdays(), 9 * 60 + 15, 15),
             Self::flexible(
                 "Study, Calculus III",
-                BlockColor::Violet,
                 weekdays(),
                 Flexible::new(90, 11 * 60 + 40, 22 * 60)
                     .sessions(20, 30, 45)
@@ -78,7 +64,6 @@ impl Task {
             .transitions(5, 5),
             Self::flexible(
                 "Lunch",
-                BlockColor::Amber,
                 every_day(),
                 Flexible::new(15, 11 * 60 + 30, 13 * 60 + 30),
             )
@@ -86,7 +71,6 @@ impl Task {
             .transitions(2, 3),
             Self::flexible(
                 "Thesis draft, chapter 2",
-                BlockColor::Red,
                 weekdays(),
                 Flexible::new(300, 9 * 60, 18 * 60)
                     .due(0, 4)
@@ -97,14 +81,12 @@ impl Task {
             .transitions(5, 5),
             Self::flexible(
                 "Strength session",
-                BlockColor::Green,
                 vec![Weekday::Mon, Weekday::Wed, Weekday::Fri],
                 Flexible::new(60, 17 * 60, 21 * 60),
             )
             .transitions(20, 20),
             Self::flexible(
                 "Reading",
-                BlockColor::Amber,
                 every_day(),
                 Flexible::new(45, 20 * 60, 23 * 60 + 20).sessions(15, 25, 45),
             )
@@ -114,21 +96,19 @@ impl Task {
 
     pub fn fixed(
         title: impl Into<SharedString>,
-        color: BlockColor,
         days: Vec<Weekday>,
         start: i32,
         duration: i32,
     ) -> Self {
-        Self::new(title, color, days, TaskKind::Fixed { start, duration })
+        Self::new(title, days, TaskKind::Fixed { start, duration })
     }
 
     pub fn flexible(
         title: impl Into<SharedString>,
-        color: BlockColor,
         days: Vec<Weekday>,
         flexible: Flexible,
     ) -> Self {
-        Self::new(title, color, days, TaskKind::Flexible(flexible))
+        Self::new(title, days, TaskKind::Flexible(flexible))
     }
 
     pub fn at(mut self, place: impl Into<SharedString>) -> Self {
@@ -147,16 +127,18 @@ impl Task {
         self
     }
 
-    fn new(
-        title: impl Into<SharedString>,
-        color: BlockColor,
-        days: Vec<Weekday>,
-        kind: TaskKind,
-    ) -> Self {
+    pub fn window(&self) -> Range<i32> {
+        match &self.kind {
+            TaskKind::Fixed { start, duration } => *start..*start + *duration,
+            TaskKind::Flexible(flexible) => flexible.window.clone(),
+        }
+    }
+
+    fn new(title: impl Into<SharedString>, days: Vec<Weekday>, kind: TaskKind) -> Self {
         Self {
             title: title.into(),
             place: None,
-            color,
+            color: None,
             days,
             priority: Priority::Normal,
             prep: 0,

@@ -10,9 +10,10 @@ use crate::clock::ClockFormat;
 use crate::theme::{ActiveTheme, BlockColor, BlockColors};
 
 pub struct Block {
+    pub task: usize,
     pub title: SharedString,
     pub place: Option<SharedString>,
-    pub color: BlockColor,
+    pub color: Option<BlockColor>,
     pub start: i32,
     pub segments: Vec<Segment>,
 }
@@ -21,15 +22,16 @@ impl Block {
     pub const MINUTES_PER_DAY: i32 = 24 * 60;
 
     pub fn new(
+        task: usize,
         start: i32,
-        color: BlockColor,
         title: impl Into<SharedString>,
         segments: Vec<Segment>,
     ) -> Self {
         Self {
+            task,
             title: title.into(),
             place: None,
-            color,
+            color: None,
             start,
             segments,
         }
@@ -147,19 +149,19 @@ impl BlockView {
     const META_HEIGHT: Pixels = px(30.0);
     const PLACE_HEIGHT: Pixels = px(44.0);
 
-    pub fn new(index: usize, block: &Block, bounds: Bounds<Pixels>, now: i32) -> Self {
-        Self {
+    pub fn new(index: usize, block: &Block, bounds: Bounds<Pixels>, now: i32) -> Option<Self> {
+        Some(Self {
             index,
             title: block.title.clone(),
             place: block.place.clone(),
-            color: block.color,
+            color: block.color?,
             state: BlockState::new(block, now),
             work_start: block.work_start(),
             work: block.work(),
             span: block.span(),
             segments: block.segments.clone(),
             bounds,
-        }
+        })
     }
 
     fn segments(&self, colors: &BlockColors) -> Vec<Div> {

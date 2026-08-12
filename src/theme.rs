@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::{App, Global, Rgba, Window, WindowAppearance, rgb, rgba};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BlockColor {
     Blue,
     Red,
@@ -9,6 +9,32 @@ pub enum BlockColor {
     Amber,
     Violet,
     Slate,
+}
+
+impl BlockColor {
+    pub const ALL: [Self; 6] = [
+        Self::Blue,
+        Self::Red,
+        Self::Green,
+        Self::Amber,
+        Self::Violet,
+        Self::Slate,
+    ];
+
+    pub fn gap(self, other: Self) -> f32 {
+        let left = self.swatch();
+        let right = other.swatch();
+        let mean = (left.r + right.r) / 2.0;
+        let red = left.r - right.r;
+        let green = left.g - right.g;
+        let blue = left.b - right.b;
+
+        ((2.0 + mean) * red * red + 4.0 * green * green + (3.0 - mean) * blue * blue).sqrt()
+    }
+
+    fn swatch(self) -> Rgba {
+        rgb(Theme::PALETTE_LIGHT[self as usize])
+    }
 }
 
 #[derive(Clone, Copy)]

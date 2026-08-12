@@ -4,6 +4,7 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use gpui::{Bounds, Pixels, point, px, size};
 
 use crate::block::{Block, BlockView};
+use crate::colorer::Colorer;
 use crate::planner::Planner;
 use crate::task::Task;
 
@@ -16,15 +17,17 @@ impl Schedule {
     const STACK_GAP: Pixels = px(2.0);
     const MIN_HEIGHT: Pixels = px(11.0);
 
-    pub fn plan(tasks: &[Task], horizon: i32, now: DateTime<Local>) -> Self {
-        Self {
-            blocks: Planner::plan(
-                tasks,
-                horizon,
-                now.num_seconds_from_midnight() as i32 / 60,
-                now.weekday(),
-            ),
-        }
+    pub fn plan(tasks: &mut [Task], horizon: i32, now: DateTime<Local>) -> Self {
+        let mut blocks = Planner::plan(
+            tasks,
+            horizon,
+            now.num_seconds_from_midnight() as i32 / 60,
+            now.weekday(),
+        );
+
+        Colorer::color(tasks, &mut blocks);
+
+        Self { blocks }
     }
 
     pub fn day(&self, day: i32, area: Bounds<Pixels>, now: i32) -> Vec<BlockView> {
@@ -46,7 +49,7 @@ impl Schedule {
         blocks
             .iter()
             .zip(bounds)
-            .map(|((index, block), bounds)| BlockView::new(*index, block, bounds, now))
+            .filter_map(|((index, block), bounds)| BlockView::new(*index, block, bounds, now))
             .collect()
     }
 

@@ -19,14 +19,14 @@ pub struct DayColumns {
 
 impl DayColumns {
     pub fn new(days: usize, day_height: Pixels, cx: &App) -> Self {
-        let tasks = Task::seed();
+        let mut tasks = Task::seed();
         let now = cx.global::<Clock>().now();
 
         Self {
             days,
             day_height,
             corners: Corners::default(),
-            schedule: Schedule::plan(&tasks, days as i32, now),
+            schedule: Schedule::plan(&mut tasks, days as i32, now),
             planned_at: Self::minute(now),
             tasks,
         }
@@ -44,7 +44,7 @@ impl DayColumns {
         let now = cx.global::<Clock>().now();
 
         if Self::minute(now) != self.planned_at {
-            self.schedule = Schedule::plan(&self.tasks, self.days as i32, now);
+            self.schedule = Schedule::plan(&mut self.tasks, self.days as i32, now);
             self.planned_at = Self::minute(now);
         }
     }
