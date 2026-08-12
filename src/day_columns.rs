@@ -1,34 +1,34 @@
-use chrono::{DateTime, Local, Timelike};
+use chrono::Timelike;
 use gpui::prelude::*;
-use gpui::{App, Bounds, Corners, Pixels, Window, div, point, px, size};
+use gpui::{App, Bounds, Corners, Entity, Pixels, Window, div, point, px, size};
 
+use crate::agenda::Agenda;
 use crate::block::BlockView;
 use crate::clock::Clock;
 use crate::grid::Grid;
-use crate::schedule::Schedule;
-use crate::task::Task;
 
 pub struct DayColumns {
     days: usize,
     day_height: Pixels,
     corners: Corners<Pixels>,
-    tasks: Vec<Task>,
-    schedule: Schedule,
-    planned_at: i64,
+    agenda: Entity<Agenda>,
 }
 
 impl DayColumns {
-    pub fn new(days: usize, day_height: Pixels, cx: &App) -> Self {
-        let mut tasks = Task::seed();
-        let now = cx.global::<Clock>().now();
+    pub fn new(
+        days: usize,
+        day_height: Pixels,
+        agenda: Entity<Agenda>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        cx.observe(&agenda, |_columns, _agenda, cx| cx.notify())
+            .detach();
 
         Self {
             days,
             day_height,
             corners: Corners::default(),
-            schedule: Schedule::plan(&mut tasks, days as i32, now),
-            planned_at: Self::minute(now),
-            tasks,
+            agenda,
         }
     }
 
@@ -40,21 +40,9 @@ impl DayColumns {
         self.corners = corners;
     }
 
-    fn replan(&mut self, cx: &App) {
-        let now = cx.global::<Clock>().now();
-
-        if Self::minute(now) != self.planned_at {
-            self.schedule = Schedule::plan(&mut self.tasks, self.days as i32, now);
-            self.planned_at = Self::minute(now);
-        }
-    }
-
-    fn minute(now: DateTime<Local>) -> i64 {
-        now.timestamp().div_euclid(60)
-    }
-
     fn blocks(&self, cx: &App) -> Vec<BlockView> {
         let now = cx.global::<Clock>().now().num_seconds_from_midnight() as i32 / 60;
+        let schedule = self.agenda.read(cx).schedule();
 
         (0..self.days)
             .flat_map(|day| {
@@ -63,7 +51,7 @@ impl DayColumns {
                     size: size(Grid::COLUMN_WIDTH - Grid::GUIDE_WIDTH, self.day_height),
                 };
 
-                self.schedule.day(day as i32, area, now)
+                schedule.day(day as i32, area, now)
             })
             .collect()
     }
@@ -71,7 +59,9 @@ impl DayColumns {
 
 impl Render for DayColumns {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.replan(cx);
+        self.agenda
+            .clone()
+            .update(cx, |agenda, cx| agenda.replan(cx));
 
         div()
             .relative()

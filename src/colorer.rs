@@ -1,5 +1,5 @@
 use crate::block::Block;
-use crate::task::Task;
+use crate::task::{Task, TaskId};
 use crate::theme::BlockColor;
 
 pub struct Colorer<'a> {
@@ -25,7 +25,7 @@ impl<'a> Colorer<'a> {
         }
 
         let mut colorer = Self {
-            neighbours: Self::neighbours(blocks),
+            neighbours: Self::neighbours(tasks, blocks),
             widest: Self::widest(),
             tasks,
         };
@@ -33,8 +33,13 @@ impl<'a> Colorer<'a> {
         colorer.repaint();
 
         for block in blocks {
-            block.color = colorer.tasks[block.task].color;
+            block.color = Self::position(colorer.tasks, block.task)
+                .and_then(|task| colorer.tasks[task].color);
         }
+    }
+
+    fn position(tasks: &[Task], id: TaskId) -> Option<usize> {
+        tasks.iter().position(|task| task.id == id)
     }
 
     fn pick(task: &Task, against: &[Task]) -> BlockColor {
@@ -72,7 +77,7 @@ impl<'a> Colorer<'a> {
         cost
     }
 
-    fn neighbours(blocks: &[Block]) -> Vec<Neighbour> {
+    fn neighbours(tasks: &[Task], blocks: &[Block]) -> Vec<Neighbour> {
         let mut neighbours = Vec::new();
 
         for (position, block) in blocks.iter().enumerate() {
@@ -83,10 +88,16 @@ impl<'a> Colorer<'a> {
                     break;
                 }
 
-                if other.task != block.task {
+                if other.task == block.task {
+                    continue;
+                }
+
+                if let Some((earlier, later)) =
+                    Self::position(tasks, block.task).zip(Self::position(tasks, other.task))
+                {
                     neighbours.push(Neighbour {
-                        earlier: block.task,
-                        later: other.task,
+                        earlier,
+                        later,
                         gap,
                         between,
                     });

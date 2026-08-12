@@ -8,6 +8,7 @@ use gpui::{
     px, size,
 };
 
+use crate::agenda::Agenda;
 use crate::block::Block;
 use crate::clock::{Clock, ClockFormat};
 use crate::cursor::Cursor;
@@ -29,12 +30,13 @@ impl Calendar {
     const HEADER_HEIGHT: Pixels = px(47.0);
     const MIN_LABEL_SPACING: Pixels = px(66.0);
     const CORNER_RADIUS: Pixels = px(8.0);
+    const MIN_WIDTH: Pixels = px(420.0);
     const MIN_DAY_HEIGHT: Pixels = px(72.0);
     const MAX_DAY_HEIGHT: Pixels = px(5760.0);
-    const DAYS: usize = 14;
+    const DAYS: usize = Agenda::HORIZON as usize;
     const ZOOM_RATE: f32 = 0.002;
 
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(agenda: Entity<Agenda>, cx: &mut Context<Self>) -> Self {
         let day_height = px(1440.0);
         Self::follow_cursor(cx);
 
@@ -42,7 +44,7 @@ impl Calendar {
             horizontal: ScrollHandle::new(),
             vertical: ScrollHandle::new(),
             day_height,
-            day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, cx)),
+            day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, agenda, cx)),
         }
     }
 
@@ -322,6 +324,7 @@ impl Render for Calendar {
             .flex_col()
             .flex_1()
             .min_h_0()
+            .min_w(Self::MIN_WIDTH)
             .bg(cx.theme().calendar_bg)
             .when(!tiling.bottom && !tiling.left, |calendar| {
                 calendar.rounded_bl(Self::CORNER_RADIUS)

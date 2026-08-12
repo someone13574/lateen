@@ -38,6 +38,21 @@ impl BlockColor {
 }
 
 #[derive(Clone, Copy)]
+pub struct NowColors {
+    pub bg: Rgba,
+    pub border: Rgba,
+}
+
+impl NowColors {
+    fn new(color: Rgba, bg: f32, border: f32, over: Rgba) -> Self {
+        Self {
+            bg: over.blend(color.alpha(bg)),
+            border: over.blend(color.alpha(border)),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct BlockColors {
     pub work: Rgba,
     pub transition: Rgba,
@@ -61,10 +76,9 @@ struct BlockRecipe {
 
 impl BlockColors {
     const RING: f32 = 0.32;
-    const PAST: f32 = 0.4;
 
-    pub fn faded(self, over: Rgba) -> Self {
-        let fade = |color: Rgba| over.blend(color.alpha(Self::PAST));
+    pub fn faded(self, over: Rgba, strength: f32) -> Self {
+        let fade = |color: Rgba| over.blend(color.alpha(strength));
 
         Self {
             work: fade(self.work),
@@ -108,9 +122,12 @@ pub struct Theme {
     pub grid_bg: Rgba,
     pub grid_hour_line: Rgba,
     pub grid_day_border: Rgba,
+    pub skipped_border: Rgba,
     pub cursor_fg: Rgba,
     blocks: [BlockColors; 6],
     current_blocks: [BlockColors; 6],
+    now_cards: [NowColors; 6],
+    swatches: [Rgba; 6],
     pub gutter_bg: Rgba,
     pub gutter_border: Rgba,
     pub gutter_fg: Rgba,
@@ -121,6 +138,26 @@ pub struct Theme {
     pub today_header_bg: Rgba,
     pub today_header_fg: Rgba,
     pub today_header_sub_fg: Rgba,
+    pub panel_bg: Rgba,
+    pub panel_border: Rgba,
+    pub panel_divider: Rgba,
+    pub card_bg: Rgba,
+    pub muted_fg: Rgba,
+    pub faint_fg: Rgba,
+    pub track_bg: Rgba,
+    pub accent_bg: Rgba,
+    pub accent_hover_bg: Rgba,
+    pub accent_fg: Rgba,
+    pub body_fg: Rgba,
+    pub dim_fg: Rgba,
+    pub rule: Rgba,
+    pub link_fg: Rgba,
+    pub chip_fg: Rgba,
+    pub chip_border: Rgba,
+    pub row_hover_bg: Rgba,
+    pub pending_bg: Rgba,
+    pub pending_border: Rgba,
+    pub pending_meta_fg: Rgba,
     pub scrollbar_thumb: Rgba,
     pub scrollbar_thumb_hover: Rgba,
     pub bottom_bar_bg: Rgba,
@@ -169,9 +206,13 @@ impl Theme {
             grid_bg,
             grid_hour_line: rgb(0xe9e9e4),
             grid_day_border: rgb(0xeaeae5),
+            skipped_border: rgb(0xc9968c),
             cursor_fg: rgb(0x2f6fd0),
             blocks: Self::PALETTE_LIGHT.map(|color| BlockColors::new(rgb(color), &recipe)),
             current_blocks: Self::PALETTE_LIGHT.map(|color| BlockColors::new(rgb(color), &current)),
+            now_cards: Self::PALETTE_LIGHT
+                .map(|color| NowColors::new(rgb(color), 0.05, 0.32, rgb(0xfafaf8))),
+            swatches: Self::PALETTE_LIGHT.map(rgb),
             gutter_bg: rgb(0xfbfbfa),
             gutter_border: rgb(0xe2e2dd),
             gutter_fg: rgb(0x95958c),
@@ -182,6 +223,26 @@ impl Theme {
             today_header_bg: rgb(0xeef3fb),
             today_header_fg: rgb(0x22539c),
             today_header_sub_fg: rgb(0x4a7cc4),
+            panel_bg: rgb(0xfafaf8),
+            panel_border: rgb(0xdededa),
+            panel_divider: rgb(0xe6e6e2),
+            card_bg: rgb(0xffffff),
+            muted_fg: rgb(0x77776f),
+            faint_fg: rgb(0x95958c),
+            track_bg: rgb(0xe4e4df),
+            accent_bg: rgb(0x2f6fd0),
+            accent_hover_bg: rgb(0x2860b8),
+            accent_fg: rgb(0xffffff),
+            body_fg: rgb(0x57574f),
+            dim_fg: rgb(0x8b8b83),
+            rule: rgb(0xe8e8e3),
+            link_fg: rgb(0x22539c),
+            chip_fg: rgb(0x4a4a44),
+            chip_border: rgb(0x9dbbe6),
+            row_hover_bg: rgb(0xfbfcfe),
+            pending_bg: rgb(0xfdfcf7),
+            pending_border: rgb(0xe4e0d4),
+            pending_meta_fg: rgb(0x83837c),
             scrollbar_thumb: rgb(0xc6c6c0),
             scrollbar_thumb_hover: rgb(0xa8a8a1),
             bottom_bar_bg: rgb(0xf6f6f4),
@@ -227,9 +288,13 @@ impl Theme {
             grid_bg,
             grid_hour_line: rgb(0x2b2e32),
             grid_day_border: rgb(0x2b2e32),
+            skipped_border: rgb(0x8a5f56),
             cursor_fg: rgb(0x5b91e0),
             blocks: Self::PALETTE_DARK.map(|color| BlockColors::new(rgb(color), &recipe)),
             current_blocks: Self::PALETTE_DARK.map(|color| BlockColors::new(rgb(color), &current)),
+            now_cards: Self::PALETTE_DARK
+                .map(|color| NowColors::new(rgb(color), 0.14, 0.45, rgb(0x1e2124))),
+            swatches: Self::PALETTE_DARK.map(rgb),
             gutter_bg: rgb(0x232629),
             gutter_border: rgb(0x31353a),
             gutter_fg: rgb(0x71777e),
@@ -240,6 +305,26 @@ impl Theme {
             today_header_bg: rgb(0x212b38),
             today_header_fg: rgb(0x8fb6ee),
             today_header_sub_fg: rgb(0x6d90c4),
+            panel_bg: rgb(0x1e2124),
+            panel_border: rgb(0x31353a),
+            panel_divider: rgb(0x2b2f33),
+            card_bg: rgb(0x26292d),
+            muted_fg: rgb(0x93999f),
+            faint_fg: rgb(0x71777e),
+            track_bg: rgb(0x33373c),
+            accent_bg: rgb(0x5b91e0),
+            accent_hover_bg: rgb(0x6c9de6),
+            accent_fg: rgb(0x10131a),
+            body_fg: rgb(0xa9aeb4),
+            dim_fg: rgb(0x7d838a),
+            rule: rgb(0x2f3338),
+            link_fg: rgb(0x8fb6ee),
+            chip_fg: rgb(0xc6c9cd),
+            chip_border: rgb(0x3f5f8c),
+            row_hover_bg: rgb(0x262b31),
+            pending_bg: rgb(0x2a2721),
+            pending_border: rgb(0x3d382c),
+            pending_meta_fg: rgb(0x8b9198),
             scrollbar_thumb: rgb(0x3f444a),
             scrollbar_thumb_hover: rgb(0x565c63),
             bottom_bar_bg: rgb(0x1d1f22),
@@ -259,6 +344,14 @@ impl Theme {
 
     pub fn current_block(&self, color: BlockColor) -> BlockColors {
         self.current_blocks[color as usize]
+    }
+
+    pub fn now_card(&self, color: BlockColor) -> NowColors {
+        self.now_cards[color as usize]
+    }
+
+    pub fn swatch(&self, color: BlockColor) -> Rgba {
+        self.swatches[color as usize]
     }
 
     pub fn init(window: &mut Window, cx: &mut App) {

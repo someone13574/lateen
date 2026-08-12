@@ -1,11 +1,25 @@
 use std::ops::Range;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::Weekday;
 use gpui::SharedString;
 
+use crate::block::Block;
 use crate::theme::BlockColor;
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TaskId(u64);
+
+impl TaskId {
+    fn next() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
 pub struct Task {
+    pub id: TaskId,
     pub title: SharedString,
     pub place: Option<SharedString>,
     pub color: Option<BlockColor>,
@@ -127,6 +141,26 @@ impl Task {
         self
     }
 
+    pub fn run(&self, day: i32) -> Range<i32> {
+        match &self.kind {
+            TaskKind::Flexible(Flexible {
+                repeat:
+                    Repeat::Once {
+                        earliest_day,
+                        deadline_day,
+                    },
+                ..
+            }) => {
+                *earliest_day * Block::MINUTES_PER_DAY..(*deadline_day + 1) * Block::MINUTES_PER_DAY
+            }
+            _ => day * Block::MINUTES_PER_DAY..(day + 1) * Block::MINUTES_PER_DAY,
+        }
+    }
+
+    pub fn splittable(&self) -> bool {
+        matches!(&self.kind, TaskKind::Flexible(flexible) if flexible.sessions.is_some())
+    }
+
     pub fn window(&self) -> Range<i32> {
         match &self.kind {
             TaskKind::Fixed { start, duration } => *start..*start + *duration,
@@ -136,6 +170,7 @@ impl Task {
 
     fn new(title: impl Into<SharedString>, days: Vec<Weekday>, kind: TaskKind) -> Self {
         Self {
+            id: TaskId::next(),
             title: title.into(),
             place: None,
             color: None,

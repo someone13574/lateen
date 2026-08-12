@@ -6,10 +6,12 @@ use gpui::{Bounds, Pixels, point, px, size};
 use crate::block::{Block, BlockView};
 use crate::colorer::Colorer;
 use crate::planner::Planner;
-use crate::task::Task;
+use crate::session::Session;
+use crate::task::{Task, TaskKind};
 
 pub struct Schedule {
     blocks: Vec<Block>,
+    past: Vec<Block>,
 }
 
 impl Schedule {
@@ -17,9 +19,17 @@ impl Schedule {
     const STACK_GAP: Pixels = px(2.0);
     const MIN_HEIGHT: Pixels = px(11.0);
 
-    pub fn plan(tasks: &mut [Task], horizon: i32, now: DateTime<Local>) -> Self {
+    pub fn plan(
+        tasks: &mut [Task],
+        log: &[Session],
+        pin: Option<&Block>,
+        horizon: i32,
+        now: DateTime<Local>,
+    ) -> Self {
         let mut blocks = Planner::plan(
             tasks,
+            log,
+            pin,
             horizon,
             now.num_seconds_from_midnight() as i32 / 60,
             now.weekday(),
@@ -27,16 +37,26 @@ impl Schedule {
 
         Colorer::color(tasks, &mut blocks);
 
-        Self { blocks }
+        Self {
+            past: Self::past(tasks, log),
+            blocks,
+        }
+    }
+
+    pub fn blocks(&self) -> impl Iterator<Item = &Block> {
+        self.blocks.iter()
     }
 
     pub fn day(&self, day: i32, area: Bounds<Pixels>, now: i32) -> Vec<BlockView> {
-        let blocks: Vec<_> = self
+        let mut blocks: Vec<_> = self
             .blocks
             .iter()
+            .chain(&self.past)
             .enumerate()
             .filter(|(_, block)| block.day() == day)
             .collect();
+
+        blocks.sort_by_key(|(_, block)| block.start);
 
         let mut bounds: Vec<_> = Self::columns(&blocks)
             .iter()
@@ -50,6 +70,16 @@ impl Schedule {
             .iter()
             .zip(bounds)
             .filter_map(|((index, block), bounds)| BlockView::new(*index, block, bounds, now))
+            .collect()
+    }
+
+    fn past(tasks: &[Task], log: &[Session]) -> Vec<Block> {
+        log.iter()
+            .filter_map(|session| {
+                let task = tasks.iter().find(|task| task.id == session.task)?;
+
+                matches!(task.kind, TaskKind::Flexible(_)).then(|| Block::logged(task, session))
+            })
             .collect()
     }
 

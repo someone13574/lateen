@@ -1,4 +1,5 @@
 use std::f32::consts::SQRT_2;
+use std::ops::Range;
 
 use gpui::prelude::*;
 use gpui::{
@@ -7,22 +8,26 @@ use gpui::{
 };
 
 use crate::clock::ClockFormat;
+use crate::session::{Outcome, Session};
+use crate::task::{Task, TaskId};
 use crate::theme::{ActiveTheme, BlockColor, BlockColors};
 
+#[derive(Clone)]
 pub struct Block {
-    pub task: usize,
+    pub task: TaskId,
     pub title: SharedString,
     pub place: Option<SharedString>,
     pub color: Option<BlockColor>,
     pub start: i32,
     pub segments: Vec<Segment>,
+    pub outcome: Option<Outcome>,
 }
 
 impl Block {
     pub const MINUTES_PER_DAY: i32 = 24 * 60;
 
     pub fn new(
-        task: usize,
+        task: TaskId,
         start: i32,
         title: impl Into<SharedString>,
         segments: Vec<Segment>,
@@ -34,6 +39,22 @@ impl Block {
             color: None,
             start,
             segments,
+            outcome: None,
+        }
+    }
+
+    pub fn logged(task: &Task, session: &Session) -> Self {
+        Self {
+            task: task.id,
+            title: task.title.clone(),
+            place: task.place.clone(),
+            color: task.color,
+            start: session.start,
+            segments: vec![Segment {
+                kind: SegmentKind::Work,
+                minutes: (session.end - session.start).max(1),
+            }],
+            outcome: Some(session.outcome),
         }
     }
 
@@ -58,7 +79,7 @@ impl Block {
         self.start.rem_euclid(Self::MINUTES_PER_DAY)
     }
 
-    fn work_start(&self) -> i32 {
+    pub fn work_start(&self) -> i32 {
         self.start
             + self
                 .segments
@@ -68,7 +89,38 @@ impl Block {
                 .sum::<i32>()
     }
 
-    fn work(&self) -> i32 {
+    pub fn elapsed_work(&self, now: i32) -> i32 {
+        let mut start = self.start;
+        let mut worked = 0;
+
+        for segment in &self.segments {
+            if segment.kind == SegmentKind::Work {
+                worked += (now - start).clamp(0, segment.minutes);
+            }
+
+            start += segment.minutes;
+        }
+
+        worked
+    }
+
+    pub fn phase(&self, now: i32) -> Option<(SegmentKind, Range<i32>)> {
+        let mut start = self.start;
+
+        for segment in &self.segments {
+            let end = start + segment.minutes;
+
+            if now < end {
+                return Some((segment.kind, start..end));
+            }
+
+            start = end;
+        }
+
+        None
+    }
+
+    pub fn work(&self) -> i32 {
         self.segments
             .iter()
             .filter(|segment| segment.kind == SegmentKind::Work)
@@ -102,26 +154,35 @@ enum BlockState {
     Upcoming,
     Current,
     Past,
+    Happened,
+    Skipped,
 }
 
 impl BlockState {
+    const PAST: f32 = 0.4;
+    const HAPPENED: f32 = 0.45;
+    const SKIPPED: f32 = 0.34;
+
     fn new(block: &Block, now: i32) -> Self {
-        if block.end() <= now {
-            Self::Past
-        } else if block.start <= now {
-            Self::Current
-        } else {
-            Self::Upcoming
+        match block.outcome {
+            Some(Outcome::Skipped) => Self::Skipped,
+            Some(Outcome::Assumed | Outcome::Done) => Self::Happened,
+            None if block.end() <= now => Self::Past,
+            None if block.start <= now => Self::Current,
+            None => Self::Upcoming,
         }
     }
 
     fn colors(self, color: BlockColor, cx: &App) -> BlockColors {
         let theme = cx.theme();
+        let faded = |strength| theme.block(color).faded(theme.grid_bg, strength);
 
         match self {
             Self::Upcoming => theme.block(color),
             Self::Current => theme.current_block(color),
-            Self::Past => theme.block(color).faded(theme.grid_bg),
+            Self::Past => faded(Self::PAST),
+            Self::Happened => faded(Self::HAPPENED),
+            Self::Skipped => faded(Self::SKIPPED),
         }
     }
 }
@@ -133,6 +194,7 @@ pub struct BlockView {
     place: Option<SharedString>,
     color: BlockColor,
     state: BlockState,
+    skipped: bool,
     work_start: i32,
     work: i32,
     span: i32,
@@ -156,6 +218,7 @@ impl BlockView {
             place: block.place.clone(),
             color: block.color?,
             state: BlockState::new(block, now),
+            skipped: block.outcome == Some(Outcome::Skipped),
             work_start: block.work_start(),
             work: block.work(),
             span: block.span(),
@@ -316,7 +379,11 @@ impl RenderOnce for BlockView {
             .overflow_hidden()
             .rounded(Self::CORNER_RADIUS)
             .border(Self::BORDER_WIDTH)
-            .border_color(colors.border)
+            .border_color(match self.skipped {
+                true => cx.theme().skipped_border,
+                false => colors.border,
+            })
+            .when(self.skipped, |block| block.border_dashed())
             .when(self.state == BlockState::Current, |block| {
                 block.shadow(vec![
                     BoxShadow::new(px(0.0), px(0.0), colors.ring.into())
