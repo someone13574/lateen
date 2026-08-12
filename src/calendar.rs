@@ -42,7 +42,7 @@ impl Calendar {
             horizontal: ScrollHandle::new(),
             vertical: ScrollHandle::new(),
             day_height,
-            day_columns: cx.new(|_cx| DayColumns::new(Self::DAYS, day_height)),
+            day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, cx)),
         }
     }
 
