@@ -208,6 +208,15 @@ impl Agenda {
         cx.notify();
     }
 
+    pub fn add(&mut self, cx: &mut Context<Self>) {
+        let task = Task::draft();
+
+        self.selected = Some(task.id);
+        self.tasks.push(task);
+        self.plan(cx.global::<Clock>().now());
+        cx.notify();
+    }
+
     pub fn remove(&mut self, task: TaskId, cx: &mut Context<Self>) {
         if self.pin.as_ref().is_some_and(|pin| pin.task == task) {
             self.pin = None;

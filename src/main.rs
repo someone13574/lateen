@@ -7,6 +7,7 @@ use gpui::{
 use crate::agenda::Agenda;
 use crate::assets::Assets;
 use crate::bottom_bar::BottomBar;
+use crate::button::ClickHandler;
 use crate::calendar::Calendar;
 use crate::clock::{Clock, ClockFormat};
 use crate::input::InputState;
@@ -46,9 +47,20 @@ mod window_control;
 const APP_NAME: &str = "Lateen";
 
 struct RootView {
+    agenda: Entity<Agenda>,
     calendar: Entity<Calendar>,
     panel: Entity<Panel>,
     bottom_bar: Entity<BottomBar>,
+}
+
+impl RootView {
+    fn add_commitment(&self) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, |agenda, cx| agenda.add(cx));
+        })
+    }
 }
 
 impl Render for RootView {
@@ -66,7 +78,7 @@ impl Render for RootView {
                         window.blur();
                     }
                 })
-                .child(Titlebar::new(APP_NAME))
+                .child(Titlebar::new(APP_NAME, self.add_commitment()))
                 .child(
                     div()
                         .flex()
@@ -111,7 +123,8 @@ fn main() {
 
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
-                panel: cx.new(|cx| Panel::new(agenda, window, cx)),
+                panel: cx.new(|cx| Panel::new(agenda.clone(), window, cx)),
+                agenda,
                 bottom_bar: cx.new(BottomBar::new),
             })
         })

@@ -113,6 +113,22 @@ impl Task {
         ]
     }
 
+    pub fn draft() -> Self {
+        Self::flexible(
+            "New commitment",
+            vec![
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
+                Weekday::Sat,
+                Weekday::Sun,
+            ],
+            Flexible::new(30, 9 * 60, 22 * 60),
+        )
+    }
+
     pub fn fixed(
         title: impl Into<SharedString>,
         days: Vec<Weekday>,

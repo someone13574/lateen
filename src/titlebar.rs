@@ -6,23 +6,25 @@ use gpui::{
     size, text,
 };
 
-use crate::button::Button;
+use crate::button::{Button, ClickHandler};
 use crate::theme::ActiveTheme;
 use crate::window_control::WindowControl;
 
 #[derive(IntoElement)]
 pub struct Titlebar {
     title: SharedString,
+    on_new: Box<ClickHandler>,
 }
 
 impl Titlebar {
-    pub fn new(title: impl Into<SharedString>) -> Self {
+    pub fn new(title: impl Into<SharedString>, on_new: Box<ClickHandler>) -> Self {
         Self {
             title: title.into(),
+            on_new,
         }
     }
 
-    fn actions() -> Div {
+    fn actions(on_new: Box<ClickHandler>) -> Div {
         div()
             .flex()
             .flex_none()
@@ -33,7 +35,7 @@ impl Titlebar {
                 cx.stop_propagation()
             })
             .on_mouse_move(|_event, _window, cx| cx.stop_propagation())
-            .child(Button::new("new", "New"))
+            .child(Button::new("new", "New").on_click(on_new))
             .child(Button::new("import-calendar", "Import calendar"))
     }
 
@@ -81,6 +83,7 @@ impl Titlebar {
 
 impl RenderOnce for Titlebar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let Self { title, on_new } = self;
         let decorations = window.window_decorations();
         let client = matches!(decorations, Decorations::Client { .. });
         let tiling = match decorations {
@@ -147,11 +150,11 @@ impl RenderOnce for Titlebar {
                         .text_size(px(13.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .letter_spacing(px(0.13))
-                        .child(text!(self.title)),
+                        .child(text!(title)),
                 )
             })
             .child(div().flex_1())
-            .child(Self::actions())
+            .child(Self::actions(on_new))
             .when(client, |titlebar| titlebar.child(Self::controls(window)))
     }
 }
