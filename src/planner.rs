@@ -78,10 +78,12 @@ impl<'a> Planner<'a> {
                 start,
                 duration,
                 recurrence,
+                overrun_percent,
             } = task.kind
             else {
                 continue;
             };
+            let span = Self::allowance(duration, overrun_percent);
 
             for day in 0..self.horizon {
                 if !self.occurs_on(task, day) || !self.recurs_on(recurrence, day) {
@@ -89,7 +91,7 @@ impl<'a> Planner<'a> {
                 }
 
                 let block_start = day * Block::MINUTES_PER_DAY + start - task.prep;
-                let segments = self.cut(task, block_start, Self::segments(task, duration, None));
+                let segments = self.cut(task, block_start, Self::segments(task, span, None));
                 self.reserve(block_start, Self::span(&segments), task.priority);
                 blocks.push(Self::block(task, block_start, segments));
 
@@ -562,6 +564,12 @@ impl<'a> Planner<'a> {
 
     fn occurs_on(&self, task: &Task, day: i32) -> bool {
         task.days.contains(&self.weekday(day))
+    }
+
+    fn allowance(duration: i32, percent: i32) -> i32 {
+        let span = duration as f32 * (1.0 + percent.max(0) as f32 / 100.0);
+
+        (span.round() as i32).max(1)
     }
 
     fn recurs_on(&self, recurrence: Recurrence, day: i32) -> bool {

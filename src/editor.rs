@@ -24,6 +24,7 @@ pub struct Editor {
     start: Entity<InputState>,
     duration: Entity<InputState>,
     place: Entity<InputState>,
+    overrun: Entity<InputState>,
     total: Entity<InputState>,
     opens: Entity<InputState>,
     closes: Entity<InputState>,
@@ -53,6 +54,7 @@ impl Editor {
             start: Self::field(Self::set_start, window, cx),
             duration: Self::field(Self::set_duration, window, cx),
             place: Self::field(Self::set_place, window, cx),
+            overrun: Self::field(Self::set_overrun, window, cx),
             total: Self::field(Self::set_total, window, cx),
             opens: Self::field(Self::set_opens, window, cx),
             closes: Self::field(Self::set_closes, window, cx),
@@ -116,7 +118,10 @@ impl Editor {
 
         match &task.kind {
             TaskKind::Fixed {
-                start, duration, ..
+                start,
+                duration,
+                overrun_percent,
+                ..
             } => values.extend([
                 (self.start.clone(), clock.time_label(*start)),
                 (self.duration.clone(), duration.to_string()),
@@ -124,6 +129,7 @@ impl Editor {
                     self.place.clone(),
                     task.place.clone().unwrap_or_default().to_string(),
                 ),
+                (self.overrun.clone(), overrun_percent.to_string()),
             ]),
             TaskKind::Flexible(flexible) => values.extend(self.flexible_values(flexible, clock)),
         }
@@ -179,6 +185,7 @@ impl Editor {
                 start: flexible.window.start,
                 duration: flexible.total,
                 recurrence: Recurrence::Weekly,
+                overrun_percent: 0,
             },
             (TaskKind::Fixed { duration, .. }, false) => {
                 TaskKind::Flexible(Flexible::new(*duration, 9 * 60, 22 * 60))
@@ -305,11 +312,11 @@ impl Editor {
     }
 
     fn set_prep(task: &mut Task, text: &str) {
-        task.prep = Self::minutes(text).unwrap_or(task.prep);
+        task.prep = Self::amount(text).unwrap_or(task.prep);
     }
 
     fn set_cleanup(task: &mut Task, text: &str) {
-        task.cleanup = Self::minutes(text).unwrap_or(task.cleanup);
+        task.cleanup = Self::amount(text).unwrap_or(task.cleanup);
     }
 
     fn set_start(task: &mut Task, text: &str) {
@@ -322,14 +329,26 @@ impl Editor {
 
     fn set_duration(task: &mut Task, text: &str) {
         if let (TaskKind::Fixed { duration, .. }, Some(minutes)) =
-            (&mut task.kind, Self::minutes(text))
+            (&mut task.kind, Self::amount(text))
         {
             *duration = minutes.max(1);
         }
     }
 
+    fn set_overrun(task: &mut Task, text: &str) {
+        if let (
+            TaskKind::Fixed {
+                overrun_percent, ..
+            },
+            Some(percent),
+        ) = (&mut task.kind, Self::amount(text))
+        {
+            *overrun_percent = percent;
+        }
+    }
+
     fn set_total(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), Self::minutes(text)) {
+        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), Self::amount(text)) {
             flexible.total = minutes.max(1);
         }
     }
@@ -347,25 +366,25 @@ impl Editor {
     }
 
     fn set_preferred(task: &mut Task, text: &str) {
-        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::minutes(text)) {
+        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::amount(text)) {
             sessions.preferred = minutes.max(1);
         }
     }
 
     fn set_shortest(task: &mut Task, text: &str) {
-        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::minutes(text)) {
+        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::amount(text)) {
             sessions.shortest = minutes.max(1);
         }
     }
 
     fn set_longest(task: &mut Task, text: &str) {
-        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::minutes(text)) {
+        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::amount(text)) {
             sessions.longest = minutes.max(1);
         }
     }
 
     fn set_break_every(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(every)) = (Self::flexible(task), Self::minutes(text)) {
+        if let (Some(flexible), Some(every)) = (Self::flexible(task), Self::amount(text)) {
             let minutes = flexible.breaks.map_or(0, |breaks| breaks.minutes);
 
             flexible.breaks = (every > 0).then_some(Breaks { every, minutes });
@@ -373,14 +392,14 @@ impl Editor {
     }
 
     fn set_break_minutes(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), Self::minutes(text)) {
+        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), Self::amount(text)) {
             let every = flexible.breaks.map_or(0, |breaks| breaks.every);
 
             flexible.breaks = (every > 0).then_some(Breaks { every, minutes });
         }
     }
 
-    fn minutes(text: &str) -> Option<i32> {
+    fn amount(text: &str) -> Option<i32> {
         text.trim().parse().ok().filter(|minutes| *minutes >= 0)
     }
 
@@ -1023,6 +1042,11 @@ impl Editor {
             .child(div().mt(px(8.0)).child(Self::labeled(
                 "Location",
                 Input::new(self.place.clone()),
+                cx,
+            )))
+            .child(div().mt(px(8.0)).child(Self::labeled(
+                "Overrun allowance (%)",
+                Input::new(self.overrun.clone()),
                 cx,
             )))
     }

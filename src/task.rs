@@ -35,6 +35,7 @@ pub enum TaskKind {
         start: i32,
         duration: i32,
         recurrence: Recurrence,
+        overrun_percent: i32,
     },
     Flexible(Flexible),
 }
@@ -125,6 +126,7 @@ impl Task {
                 start,
                 duration,
                 recurrence: Recurrence::Weekly,
+                overrun_percent: 0,
             },
         )
     }
