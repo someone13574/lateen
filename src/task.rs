@@ -31,7 +31,11 @@ pub struct Task {
 }
 
 pub enum TaskKind {
-    Fixed { start: i32, duration: i32 },
+    Fixed {
+        start: i32,
+        duration: i32,
+        recurrence: Recurrence,
+    },
     Flexible(Flexible),
 }
 
@@ -114,7 +118,15 @@ impl Task {
         start: i32,
         duration: i32,
     ) -> Self {
-        Self::new(title, days, TaskKind::Fixed { start, duration })
+        Self::new(
+            title,
+            days,
+            TaskKind::Fixed {
+                start,
+                duration,
+                recurrence: Recurrence::Weekly,
+            },
+        )
     }
 
     pub fn flexible(
@@ -142,18 +154,16 @@ impl Task {
     }
 
     pub fn run(&self, day: i32) -> Range<i32> {
-        match &self.kind {
-            TaskKind::Flexible(Flexible {
-                repeat:
-                    Repeat::Once {
-                        earliest_day,
-                        deadline_day,
-                    },
-                ..
-            }) => {
-                *earliest_day * Block::MINUTES_PER_DAY..(*deadline_day + 1) * Block::MINUTES_PER_DAY
-            }
-            _ => day * Block::MINUTES_PER_DAY..(day + 1) * Block::MINUTES_PER_DAY,
+        let TaskKind::Flexible(flexible) = &self.kind else {
+            return day * Block::MINUTES_PER_DAY..(day + 1) * Block::MINUTES_PER_DAY;
+        };
+
+        match flexible.repeat {
+            Repeat::Once {
+                earliest_day,
+                deadline_day,
+            } => earliest_day * Block::MINUTES_PER_DAY..(deadline_day + 1) * Block::MINUTES_PER_DAY,
+            repeat => day * Block::MINUTES_PER_DAY..(day + repeat.cycle()) * Block::MINUTES_PER_DAY,
         }
     }
 
@@ -163,7 +173,9 @@ impl Task {
 
     pub fn window(&self) -> Range<i32> {
         match &self.kind {
-            TaskKind::Fixed { start, duration } => *start..*start + *duration,
+            TaskKind::Fixed {
+                start, duration, ..
+            } => *start..*start + *duration,
             TaskKind::Flexible(flexible) => flexible.window.clone(),
         }
     }
@@ -225,12 +237,36 @@ impl Flexible {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Repeat {
     Daily,
+    Weekly,
+    Biweekly,
+    Monthly,
+    Yearly,
     Once {
         earliest_day: i32,
         deadline_day: i32,
     },
+}
+
+impl Repeat {
+    pub fn cycle(self) -> i32 {
+        match self {
+            Self::Daily | Self::Once { .. } => 1,
+            Self::Weekly => 7,
+            Self::Biweekly => 14,
+            Self::Monthly => 30,
+            Self::Yearly => 365,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Recurrence {
+    Once,
+    Weekly,
+    Biweekly,
 }
 
 #[derive(Clone, Copy)]

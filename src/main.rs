@@ -10,6 +10,7 @@ use crate::calendar::Calendar;
 use crate::clock::{Clock, ClockFormat};
 use crate::input::InputState;
 use crate::panel::Panel;
+use crate::select::SelectState;
 use crate::theme::{ActiveTheme, Theme};
 use crate::titlebar::Titlebar;
 use crate::window::WindowFrame;
@@ -33,6 +34,7 @@ mod panel;
 mod planner;
 mod schedule;
 mod scrollbar;
+mod select;
 mod session;
 mod task;
 mod theme;
@@ -78,6 +80,7 @@ fn main() {
         Clock::init(cx);
         ClockFormat::init(cx);
         InputState::init(cx);
+        SelectState::init(cx);
 
         let decorations = match gpui::guess_compositor() {
             "X11" => WindowDecorations::Server,

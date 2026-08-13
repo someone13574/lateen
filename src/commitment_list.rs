@@ -161,20 +161,37 @@ impl CommitmentList {
         let clock = cx.global::<ClockFormat>();
 
         match &task.kind {
-            TaskKind::Fixed { start, duration } => format!(
+            TaskKind::Fixed {
+                start, duration, ..
+            } => format!(
                 "{} - {} ({})",
                 clock.time_label(*start),
                 clock.time_label(start + duration),
                 Self::duration_label(*duration)
             ),
             TaskKind::Flexible(flexible) => match flexible.repeat {
-                Repeat::Daily => format!("{} each day", Self::duration_label(flexible.total)),
                 Repeat::Once { deadline_day, .. } => format!(
                     "{} by {}",
                     Self::duration_label(flexible.total),
                     Self::day_label(deadline_day, cx)
                 ),
+                repeat => format!(
+                    "{} {}",
+                    Self::duration_label(flexible.total),
+                    Self::cadence_label(repeat)
+                ),
             },
+        }
+    }
+
+    fn cadence_label(repeat: Repeat) -> &'static str {
+        match repeat {
+            Repeat::Daily => "each day",
+            Repeat::Weekly => "each week",
+            Repeat::Biweekly => "every other week",
+            Repeat::Monthly => "each month",
+            Repeat::Yearly => "each year",
+            Repeat::Once { .. } => "once",
         }
     }
 

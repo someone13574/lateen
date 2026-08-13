@@ -91,8 +91,8 @@ impl Agenda {
         let TaskKind::Flexible(flexible) = &task.kind else {
             return None;
         };
-        let repeating = matches!(flexible.repeat, Repeat::Once { .. });
-        if !task.splittable() && !repeating {
+        let one_off = matches!(flexible.repeat, Repeat::Once { .. });
+        if !task.splittable() && !one_off {
             return None;
         }
 

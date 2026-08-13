@@ -5,7 +5,7 @@ use chrono::Weekday;
 
 use crate::block::{Block, Segment, SegmentKind};
 use crate::session::Session;
-use crate::task::{Breaks, Flexible, Priority, Repeat, Task, TaskKind};
+use crate::task::{Breaks, Flexible, Priority, Recurrence, Repeat, Task, TaskKind};
 
 pub struct Planner<'a> {
     tasks: &'a [Task],
@@ -74,12 +74,17 @@ impl<'a> Planner<'a> {
         let mut blocks = Vec::new();
 
         for task in tasks {
-            let TaskKind::Fixed { start, duration } = task.kind else {
+            let TaskKind::Fixed {
+                start,
+                duration,
+                recurrence,
+            } = task.kind
+            else {
                 continue;
             };
 
             for day in 0..self.horizon {
-                if !self.occurs_on(task, day) {
+                if !self.occurs_on(task, day) || !self.recurs_on(recurrence, day) {
                     continue;
                 }
 
@@ -87,6 +92,10 @@ impl<'a> Planner<'a> {
                 let segments = self.cut(task, block_start, Self::segments(task, duration, None));
                 self.reserve(block_start, Self::span(&segments), task.priority);
                 blocks.push(Self::block(task, block_start, segments));
+
+                if recurrence == Recurrence::Once {
+                    break;
+                }
             }
         }
 
@@ -156,6 +165,14 @@ impl<'a> Planner<'a> {
                 .filter(|day| self.occurs_on(task, *day))
                 .map(|day| self.instance(task, flexible, day..day + 1))
                 .collect(),
+            repeat => {
+                let cycle = repeat.cycle();
+
+                (0..self.horizon)
+                    .step_by(cycle as usize)
+                    .map(|day| self.instance(task, flexible, day..day + cycle))
+                    .collect()
+            }
         }
     }
 
@@ -545,6 +562,17 @@ impl<'a> Planner<'a> {
 
     fn occurs_on(&self, task: &Task, day: i32) -> bool {
         task.days.contains(&self.weekday(day))
+    }
+
+    fn recurs_on(&self, recurrence: Recurrence, day: i32) -> bool {
+        match recurrence {
+            Recurrence::Once | Recurrence::Weekly => true,
+            Recurrence::Biweekly => self.week(day) % 2 == 0,
+        }
+    }
+
+    fn week(&self, day: i32) -> i32 {
+        (day + self.today.num_days_from_sunday() as i32).div_euclid(7)
     }
 
     fn weekday(&self, day: i32) -> Weekday {

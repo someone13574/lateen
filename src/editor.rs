@@ -10,8 +10,11 @@ use crate::block::Block;
 use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
 use crate::input::{Input, InputEvent, InputState};
+use crate::select::{Select, SelectState};
 use crate::session::{Outcome, Session};
-use crate::task::{Breaks, Flexible, Priority, Sessions, Task, TaskId, TaskKind};
+use crate::task::{
+    Breaks, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
+};
 use crate::theme::ActiveTheme;
 
 pub struct Editor {
@@ -31,6 +34,9 @@ pub struct Editor {
     break_minutes: Entity<InputState>,
     prep: Entity<InputState>,
     cleanup: Entity<InputState>,
+    repeat: Entity<SelectState>,
+    earliest: Entity<SelectState>,
+    deadline: Entity<SelectState>,
 }
 
 impl Editor {
@@ -57,6 +63,9 @@ impl Editor {
             break_minutes: Self::field(Self::set_break_minutes, window, cx),
             prep: Self::field(Self::set_prep, window, cx),
             cleanup: Self::field(Self::set_cleanup, window, cx),
+            repeat: cx.new(|cx| SelectState::new(window, cx)),
+            earliest: cx.new(|cx| SelectState::new(window, cx)),
+            deadline: cx.new(|cx| SelectState::new(window, cx)),
         };
 
         editor.reseed(cx);
@@ -106,7 +115,9 @@ impl Editor {
         ];
 
         match &task.kind {
-            TaskKind::Fixed { start, duration } => values.extend([
+            TaskKind::Fixed {
+                start, duration, ..
+            } => values.extend([
                 (self.start.clone(), clock.time_label(*start)),
                 (self.duration.clone(), duration.to_string()),
                 (
@@ -167,6 +178,7 @@ impl Editor {
             (TaskKind::Flexible(flexible), true) => TaskKind::Fixed {
                 start: flexible.window.start,
                 duration: flexible.total,
+                recurrence: Recurrence::Weekly,
             },
             (TaskKind::Fixed { duration, .. }, false) => {
                 TaskKind::Flexible(Flexible::new(*duration, 9 * 60, 22 * 60))
@@ -205,6 +217,82 @@ impl Editor {
                 preferred: 30,
                 longest: 90,
             });
+        }
+    }
+
+    fn repeat_index(repeat: Repeat) -> usize {
+        match repeat {
+            Repeat::Daily => 0,
+            Repeat::Weekly => 1,
+            Repeat::Biweekly => 2,
+            Repeat::Monthly => 3,
+            Repeat::Yearly => 4,
+            Repeat::Once { .. } => 5,
+        }
+    }
+
+    fn set_repeat(task: &mut Task, index: usize) {
+        let Some(flexible) = Self::flexible(task) else {
+            return;
+        };
+        let (earliest_day, deadline_day) = match flexible.repeat {
+            Repeat::Once {
+                earliest_day,
+                deadline_day,
+            } => (earliest_day, deadline_day),
+            _ => (0, 6),
+        };
+
+        flexible.repeat = match index {
+            1 => Repeat::Weekly,
+            2 => Repeat::Biweekly,
+            3 => Repeat::Monthly,
+            4 => Repeat::Yearly,
+            5 => Repeat::Once {
+                earliest_day,
+                deadline_day,
+            },
+            _ => Repeat::Daily,
+        };
+    }
+
+    fn recurrence_index(recurrence: Recurrence) -> usize {
+        match recurrence {
+            Recurrence::Once => 0,
+            Recurrence::Weekly => 1,
+            Recurrence::Biweekly => 2,
+        }
+    }
+
+    fn set_recurrence(task: &mut Task, index: usize) {
+        if let TaskKind::Fixed { recurrence, .. } = &mut task.kind {
+            *recurrence = match index {
+                1 => Recurrence::Weekly,
+                2 => Recurrence::Biweekly,
+                _ => Recurrence::Once,
+            };
+        }
+    }
+
+    fn set_earliest(task: &mut Task, day: i32) {
+        if let Some(Repeat::Once {
+            earliest_day,
+            deadline_day,
+        }) = Self::flexible(task).map(|flexible| &mut flexible.repeat)
+        {
+            *earliest_day = day;
+            *deadline_day = (*deadline_day).max(day);
+        }
+    }
+
+    fn set_deadline(task: &mut Task, day: i32) {
+        if let Some(Repeat::Once {
+            earliest_day,
+            deadline_day,
+        }) = Self::flexible(task).map(|flexible| &mut flexible.repeat)
+        {
+            *deadline_day = day;
+            *earliest_day = (*earliest_day).min(day);
         }
     }
 
@@ -339,13 +427,13 @@ impl Editor {
             .child(Text::new(label.into(), label.into()))
     }
 
-    fn labeled(label: &'static str, input: Input, cx: &App) -> Div {
+    fn labeled(label: &'static str, control: impl IntoElement, cx: &App) -> Div {
         div()
             .flex_1()
             .text_size(px(11.0))
             .text_color(cx.theme().muted_fg)
             .child(Text::new(label.into(), label.into()))
-            .child(div().mt(px(3.0)).child(input))
+            .child(div().mt(px(3.0)).child(control))
     }
 
     fn toggle(
@@ -786,14 +874,117 @@ impl Editor {
         )
     }
 
-    fn how_much(&self, cx: &App) -> Div {
+    fn how_much(&self, repeat: Repeat, cx: &App) -> Div {
         div().child(Self::heading("How much", cx)).child(
-            div().flex().gap(px(8.0)).child(Self::labeled(
-                "Minutes",
-                Input::new(self.total.clone()),
-                cx,
-            )),
+            div()
+                .flex()
+                .gap(px(8.0))
+                .child(Self::labeled("Minutes", Input::new(self.total.clone()), cx))
+                .child(Self::labeled("Repeats", self.repeats(repeat), cx)),
         )
+    }
+
+    fn one_off(&self, earliest_day: i32, deadline_day: i32, cx: &App) -> Stateful<Div> {
+        let options = Self::day_options(cx);
+
+        div()
+            .id("one-off")
+            .flex()
+            .gap(px(8.0))
+            .mt(px(8.0))
+            .child(Self::labeled(
+                "Not before",
+                self.day_select(
+                    "earliest",
+                    "Not before",
+                    &self.earliest,
+                    options.clone(),
+                    earliest_day,
+                    Self::set_earliest,
+                ),
+                cx,
+            ))
+            .child(Self::labeled(
+                "Due",
+                self.day_select(
+                    "deadline",
+                    "Due",
+                    &self.deadline,
+                    options,
+                    deadline_day,
+                    Self::set_deadline,
+                ),
+                cx,
+            ))
+    }
+
+    fn day_select(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        state: &Entity<SelectState>,
+        options: Vec<SharedString>,
+        day: i32,
+        set: fn(&mut Task, i32),
+    ) -> Select {
+        let agenda = self.agenda.clone();
+        let task = self.task;
+
+        Select::new(id, label, state.clone(), options)
+            .selected(day.max(0) as usize)
+            .on_select(move |index, _window, cx| {
+                agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| set(task, index as i32), cx)
+                });
+            })
+    }
+
+    fn day_options(cx: &App) -> Vec<SharedString> {
+        let today = cx.global::<Clock>().now().date_naive();
+
+        (0..10)
+            .map(|day| {
+                let date = (today + Days::new(day)).format("%a %-d");
+
+                match day {
+                    0 => format!("Today ({date})").into(),
+                    1 => format!("Tomorrow ({date})").into(),
+                    _ => date.to_string().into(),
+                }
+            })
+            .collect()
+    }
+
+    fn repeats(&self, repeat: Repeat) -> Select {
+        let agenda = self.agenda.clone();
+        let task = self.task;
+        let options = ["Daily", "Weekly", "Biweekly", "Monthly", "Yearly", "Once"]
+            .map(SharedString::from)
+            .to_vec();
+
+        Select::new("repeats", "Repeats", self.repeat.clone(), options)
+            .selected(Self::repeat_index(repeat))
+            .on_select(move |index, _window, cx| {
+                agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| Self::set_repeat(task, index), cx)
+                });
+            })
+    }
+
+    fn recurrences(&self, recurrence: Recurrence) -> Select {
+        let agenda = self.agenda.clone();
+        let task = self.task;
+        let options = ["Not repeating", "Each week", "Every other week"]
+            .map(SharedString::from)
+            .to_vec();
+
+        Select::new("recurrence", "Repeats", self.repeat.clone(), options)
+            .selected(Self::recurrence_index(recurrence))
+            .on_select(move |index, _window, cx| {
+                agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| Self::set_recurrence(task, index), cx)
+                });
+            })
     }
 
     fn allowed_hours(&self, cx: &App) -> Div {
@@ -814,7 +1005,7 @@ impl Editor {
         )
     }
 
-    fn when(&self, cx: &App) -> Div {
+    fn when(&self, recurrence: Recurrence, cx: &App) -> Div {
         div()
             .child(Self::heading("When", cx))
             .child(
@@ -826,7 +1017,8 @@ impl Editor {
                         "Runs for (min)",
                         Input::new(self.duration.clone()),
                         cx,
-                    )),
+                    ))
+                    .child(Self::labeled("Repeats", self.recurrences(recurrence), cx)),
             )
             .child(div().mt(px(8.0)).child(Self::labeled(
                 "Location",
@@ -963,6 +1155,14 @@ impl Render for Editor {
         let splittable = task.splittable();
         let priority = task.priority;
         let days = task.days.clone();
+        let repeat = match &task.kind {
+            TaskKind::Flexible(flexible) => flexible.repeat,
+            TaskKind::Fixed { .. } => Repeat::Daily,
+        };
+        let recurrence = match task.kind {
+            TaskKind::Fixed { recurrence, .. } => recurrence,
+            TaskKind::Flexible(_) => Recurrence::Weekly,
+        };
         let editor = cx.entity();
 
         page.child(
@@ -975,11 +1175,18 @@ impl Render for Editor {
         .child(Self::kinds(fixed, &editor, cx))
         .child(Self::heading("Priority", cx))
         .child(self.priorities(priority, cx))
-        .children(fixed.then(|| self.when(cx)))
-        .children((!fixed).then(|| self.how_much(cx)))
+        .children(fixed.then(|| self.when(recurrence, cx)))
+        .children((!fixed).then(|| self.how_much(repeat, cx)))
+        .children(match repeat {
+            Repeat::Once {
+                earliest_day,
+                deadline_day,
+            } => Some(self.one_off(earliest_day, deadline_day, cx)),
+            _ => None,
+        })
         .children((!fixed).then(|| self.splitting(splittable, &editor, cx)))
         .children((!fixed).then(|| self.allowed_hours(cx)))
-        .child(self.days(&days, cx))
+        .children((!matches!(repeat, Repeat::Once { .. })).then(|| self.days(&days, cx)))
         .child(self.either_side(cx))
         .children((!fixed).then(|| self.breaks(cx)))
         .children(
