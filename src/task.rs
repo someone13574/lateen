@@ -266,7 +266,10 @@ impl Repeat {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Recurrence {
-    Once,
+    Once {
+        earliest_day: i32,
+        deadline_day: i32,
+    },
     Weekly,
     Biweekly,
 }

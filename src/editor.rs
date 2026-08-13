@@ -265,39 +265,65 @@ impl Editor {
 
     fn recurrence_index(recurrence: Recurrence) -> usize {
         match recurrence {
-            Recurrence::Once => 0,
+            Recurrence::Once { .. } => 0,
             Recurrence::Weekly => 1,
             Recurrence::Biweekly => 2,
         }
     }
 
     fn set_recurrence(task: &mut Task, index: usize) {
-        if let TaskKind::Fixed { recurrence, .. } = &mut task.kind {
-            *recurrence = match index {
-                1 => Recurrence::Weekly,
-                2 => Recurrence::Biweekly,
-                _ => Recurrence::Once,
-            };
+        let TaskKind::Fixed { recurrence, .. } = &mut task.kind else {
+            return;
+        };
+        let (earliest_day, deadline_day) = match *recurrence {
+            Recurrence::Once {
+                earliest_day,
+                deadline_day,
+            } => (earliest_day, deadline_day),
+            _ => (0, 6),
+        };
+
+        *recurrence = match index {
+            1 => Recurrence::Weekly,
+            2 => Recurrence::Biweekly,
+            _ => Recurrence::Once {
+                earliest_day,
+                deadline_day,
+            },
+        };
+    }
+
+    fn once_days(task: &mut Task) -> Option<(&mut i32, &mut i32)> {
+        match &mut task.kind {
+            TaskKind::Fixed {
+                recurrence:
+                    Recurrence::Once {
+                        earliest_day,
+                        deadline_day,
+                    },
+                ..
+            } => Some((earliest_day, deadline_day)),
+            TaskKind::Flexible(Flexible {
+                repeat:
+                    Repeat::Once {
+                        earliest_day,
+                        deadline_day,
+                    },
+                ..
+            }) => Some((earliest_day, deadline_day)),
+            _ => None,
         }
     }
 
     fn set_earliest(task: &mut Task, day: i32) {
-        if let Some(Repeat::Once {
-            earliest_day,
-            deadline_day,
-        }) = Self::flexible(task).map(|flexible| &mut flexible.repeat)
-        {
+        if let Some((earliest_day, deadline_day)) = Self::once_days(task) {
             *earliest_day = day;
             *deadline_day = (*deadline_day).max(day);
         }
     }
 
     fn set_deadline(task: &mut Task, day: i32) {
-        if let Some(Repeat::Once {
-            earliest_day,
-            deadline_day,
-        }) = Self::flexible(task).map(|flexible| &mut flexible.repeat)
-        {
+        if let Some((earliest_day, deadline_day)) = Self::once_days(task) {
             *deadline_day = day;
             *earliest_day = (*earliest_day).min(day);
         }
@@ -1039,6 +1065,13 @@ impl Editor {
                     ))
                     .child(Self::labeled("Repeats", self.recurrences(recurrence), cx)),
             )
+            .children(match recurrence {
+                Recurrence::Once {
+                    earliest_day,
+                    deadline_day,
+                } => Some(self.one_off(earliest_day, deadline_day, cx)),
+                _ => None,
+            })
             .child(div().mt(px(8.0)).child(Self::labeled(
                 "Location",
                 Input::new(self.place.clone()),
@@ -1187,6 +1220,8 @@ impl Render for Editor {
             TaskKind::Fixed { recurrence, .. } => recurrence,
             TaskKind::Flexible(_) => Recurrence::Weekly,
         };
+        let one_off =
+            matches!(repeat, Repeat::Once { .. }) || matches!(recurrence, Recurrence::Once { .. });
         let editor = cx.entity();
 
         page.child(
@@ -1210,7 +1245,7 @@ impl Render for Editor {
         })
         .children((!fixed).then(|| self.splitting(splittable, &editor, cx)))
         .children((!fixed).then(|| self.allowed_hours(cx)))
-        .children((!matches!(repeat, Repeat::Once { .. })).then(|| self.days(&days, cx)))
+        .children((!one_off).then(|| self.days(&days, cx)))
         .child(self.either_side(cx))
         .children((!fixed).then(|| self.breaks(cx)))
         .children(

@@ -86,7 +86,7 @@ impl<'a> Planner<'a> {
             let span = Self::allowance(duration, overrun_percent);
 
             for day in 0..self.horizon {
-                if !self.occurs_on(task, day) || !self.recurs_on(recurrence, day) {
+                if !self.places_on(task, recurrence, day) {
                     continue;
                 }
 
@@ -95,7 +95,7 @@ impl<'a> Planner<'a> {
                 self.reserve(block_start, Self::span(&segments), task.priority);
                 blocks.push(Self::block(task, block_start, segments));
 
-                if recurrence == Recurrence::Once {
+                if matches!(recurrence, Recurrence::Once { .. }) {
                     break;
                 }
             }
@@ -572,10 +572,14 @@ impl<'a> Planner<'a> {
         (span.round() as i32).max(1)
     }
 
-    fn recurs_on(&self, recurrence: Recurrence, day: i32) -> bool {
+    fn places_on(&self, task: &Task, recurrence: Recurrence, day: i32) -> bool {
         match recurrence {
-            Recurrence::Once | Recurrence::Weekly => true,
-            Recurrence::Biweekly => self.week(day) % 2 == 0,
+            Recurrence::Once {
+                earliest_day,
+                deadline_day,
+            } => (earliest_day..=deadline_day).contains(&day),
+            Recurrence::Weekly => self.occurs_on(task, day),
+            Recurrence::Biweekly => self.occurs_on(task, day) && self.week(day) % 2 == 0,
         }
     }
 

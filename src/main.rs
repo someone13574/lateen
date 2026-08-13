@@ -1,6 +1,7 @@
 use gpui::prelude::*;
 use gpui::{
-    Entity, TitlebarOptions, Window, WindowDecorations, WindowOptions, div, px, relative, size,
+    Entity, MouseButton, TitlebarOptions, Window, WindowDecorations, WindowOptions, div, px,
+    relative, size,
 };
 
 use crate::agenda::Agenda;
@@ -60,6 +61,11 @@ impl Render for RootView {
                 .font_family("Inter")
                 .line_height(relative(1.21))
                 .text_color(cx.theme().fg)
+                .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
+                    if !window.default_prevented() {
+                        window.blur();
+                    }
+                })
                 .child(Titlebar::new(APP_NAME))
                 .child(
                     div()
