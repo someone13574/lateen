@@ -2918,6 +2918,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "rust-embed",
+ "unicode-segmentation",
 ]
 
 [[package]]

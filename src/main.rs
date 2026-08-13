@@ -25,6 +25,7 @@ mod commitment_list;
 mod cursor;
 mod day_columns;
 mod grid;
+mod input;
 mod now_card;
 mod panel;
 mod planner;
