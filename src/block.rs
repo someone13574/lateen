@@ -3,10 +3,11 @@ use std::ops::Range;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, BoxShadow, Div, ElementId, FontWeight, Pixels, Rgba, SharedString, Text, Window,
-    div, pattern_slash, px,
+    App, Bounds, BoxShadow, Div, ElementId, FontWeight, Pixels, Rgba, Role, SharedString, Text,
+    Window, div, pattern_slash, px,
 };
 
+use crate::button::ClickHandler;
 use crate::clock::ClockFormat;
 use crate::session::{Outcome, Session};
 use crate::task::{Task, TaskId};
@@ -190,6 +191,7 @@ impl BlockState {
 #[derive(IntoElement)]
 pub struct BlockView {
     index: usize,
+    task: TaskId,
     title: SharedString,
     place: Option<SharedString>,
     color: BlockColor,
@@ -200,6 +202,7 @@ pub struct BlockView {
     span: i32,
     segments: Vec<Segment>,
     bounds: Bounds<Pixels>,
+    on_click: Option<Box<ClickHandler>>,
 }
 
 impl BlockView {
@@ -214,6 +217,7 @@ impl BlockView {
     pub fn new(index: usize, block: &Block, bounds: Bounds<Pixels>, now: i32) -> Option<Self> {
         Some(Self {
             index,
+            task: block.task,
             title: block.title.clone(),
             place: block.place.clone(),
             color: block.color?,
@@ -224,7 +228,17 @@ impl BlockView {
             span: block.span(),
             segments: block.segments.clone(),
             bounds,
+            on_click: None,
         })
+    }
+
+    pub fn task(&self) -> TaskId {
+        self.task
+    }
+
+    pub fn on_click(mut self, on_click: Box<ClickHandler>) -> Self {
+        self.on_click = Some(on_click);
+        self
     }
 
     fn segments(&self, colors: &BlockColors) -> Vec<Div> {
@@ -369,6 +383,9 @@ impl RenderOnce for BlockView {
         let colors = self.state.colors(self.color, cx);
 
         div()
+            .id(("block", self.index))
+            .role(Role::Button)
+            .aria_label(self.title.clone())
             .absolute()
             .top(self.bounds.origin.y)
             .left(self.bounds.origin.x)
@@ -392,5 +409,11 @@ impl RenderOnce for BlockView {
             })
             .children(self.segments(&colors))
             .child(self.label(&colors, cx))
+            .when_some(self.on_click, |block, on_click| {
+                block.cursor_pointer().on_click(move |_event, window, cx| {
+                    cx.stop_propagation();
+                    on_click(window, cx);
+                })
+            })
     }
 }

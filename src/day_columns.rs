@@ -4,8 +4,10 @@ use gpui::{App, Bounds, Corners, Entity, Pixels, Window, div, point, px, size};
 
 use crate::agenda::Agenda;
 use crate::block::BlockView;
+use crate::button::ClickHandler;
 use crate::clock::Clock;
 use crate::grid::Grid;
+use crate::task::TaskId;
 
 pub struct DayColumns {
     days: usize,
@@ -53,7 +55,20 @@ impl DayColumns {
 
                 schedule.day(day as i32, area, now)
             })
+            .map(|block| {
+                let task = block.task();
+
+                block.on_click(self.open(task))
+            })
             .collect()
+    }
+
+    fn open(&self, task: TaskId) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, |agenda, cx| agenda.select(task, cx));
+        })
     }
 }
 
