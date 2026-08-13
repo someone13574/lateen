@@ -1,9 +1,9 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, EntityInputHandler, FocusHandle, Focusable, KeyBinding,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ShapedLine, SharedString,
-    UTF16Selection, Window, actions, point, px,
+    App, Bounds, ClipboardItem, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
+    KeyBinding, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ShapedLine,
+    SharedString, UTF16Selection, Window, actions, point, px,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -34,6 +34,10 @@ actions!(
         Undo,
     ]
 );
+
+pub enum InputEvent {
+    Changed,
+}
 
 pub struct InputState {
     focus_handle: FocusHandle,
@@ -128,6 +132,16 @@ impl InputState {
 
     pub fn content(&self) -> &SharedString {
         &self.content
+    }
+
+    pub fn set_content(&mut self, content: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = content.into();
+        self.selected_range = self.content.len()..self.content.len();
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.edit_run = None;
+
+        cx.notify();
     }
 
     fn left(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -364,6 +378,7 @@ impl InputState {
         self.selected_range = cursor..cursor;
         self.marked_range = None;
 
+        cx.emit(InputEvent::Changed);
         cx.notify();
     }
 
@@ -382,6 +397,7 @@ impl InputState {
         self.marked_range = None;
         self.edit_run = None;
 
+        cx.emit(InputEvent::Changed);
         cx.notify();
     }
 
@@ -499,6 +515,8 @@ impl InputState {
     }
 }
 
+impl EventEmitter<InputEvent> for InputState {}
+
 impl Focusable for InputState {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -579,6 +597,7 @@ impl EntityInputHandler for InputState {
         };
         self.marked_range = (!new_text.is_empty()).then_some(marked);
 
+        cx.emit(InputEvent::Changed);
         cx.notify();
     }
 

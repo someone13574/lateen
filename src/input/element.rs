@@ -22,6 +22,7 @@ pub struct Input {
     state: Entity<InputState>,
     placeholder: SharedString,
     text_size: Pixels,
+    padding: Point<Pixels>,
 }
 
 impl Input {
@@ -30,16 +31,17 @@ impl Input {
             state,
             placeholder: SharedString::default(),
             text_size: px(12.0),
+            padding: point(px(6.0), px(4.0)),
         }
-    }
-
-    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
-        self
     }
 
     pub fn text_size(mut self, text_size: Pixels) -> Self {
         self.text_size = text_size;
+        self
+    }
+
+    pub fn padding(mut self, horizontal: Pixels, vertical: Pixels) -> Self {
+        self.padding = point(horizontal, vertical);
         self
     }
 
@@ -73,8 +75,8 @@ impl RenderOnce for Input {
             .relative()
             .flex()
             .w_full()
-            .px(px(6.0))
-            .py(px(4.0))
+            .px(self.padding.x)
+            .py(self.padding.y)
             .border(px(1.0))
             .rounded(px(4.0))
             .bg(cx.theme().input_bg)
@@ -84,6 +86,7 @@ impl RenderOnce for Input {
                 cx.theme().input_border
             })
             .text_size(self.text_size)
+            .text_color(cx.theme().fg)
             .cursor(CursorStyle::IBeam)
             .on_action(self.action::<Left>(InputState::left))
             .on_action(self.action::<Right>(InputState::right))

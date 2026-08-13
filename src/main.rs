@@ -8,6 +8,7 @@ use crate::assets::Assets;
 use crate::bottom_bar::BottomBar;
 use crate::calendar::Calendar;
 use crate::clock::{Clock, ClockFormat};
+use crate::input::InputState;
 use crate::panel::Panel;
 use crate::theme::{ActiveTheme, Theme};
 use crate::titlebar::Titlebar;
@@ -24,6 +25,7 @@ mod colorer;
 mod commitment_list;
 mod cursor;
 mod day_columns;
+mod editor;
 mod grid;
 mod input;
 mod now_card;
@@ -75,6 +77,7 @@ fn main() {
         Assets::load_fonts(cx).expect("failed to load embedded fonts");
         Clock::init(cx);
         ClockFormat::init(cx);
+        InputState::init(cx);
 
         let decorations = match gpui::guess_compositor() {
             "X11" => WindowDecorations::Server,
@@ -99,7 +102,7 @@ fn main() {
 
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
-                panel: cx.new(|cx| Panel::new(agenda, cx)),
+                panel: cx.new(|cx| Panel::new(agenda, window, cx)),
                 bottom_bar: cx.new(BottomBar::new),
             })
         })

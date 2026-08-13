@@ -1,8 +1,8 @@
 use chrono::{Days, Weekday};
 use gpui::prelude::*;
 use gpui::{
-    App, Div, ElementId, Entity, FontWeight, Pixels, Rgba, SharedString, Stateful, Text, Window,
-    div, px, relative,
+    App, ClickEvent, Div, ElementId, Entity, FontWeight, Pixels, Rgba, SharedString, Stateful,
+    Text, Window, div, px, relative,
 };
 
 use crate::agenda::Agenda;
@@ -44,6 +44,7 @@ impl CommitmentList {
                     .border_color(cx.theme().chip_border)
                     .bg(cx.theme().row_hover_bg)
             })
+            .on_click(self.open(task.id))
             .child(div().flex_none().w(px(4.0)).rounded(px(2.0)).bg(swatch))
             .child(
                 div()
@@ -66,6 +67,14 @@ impl CommitmentList {
                     ))
                     .children(progress.map(|progress| Self::progress(index, swatch, progress, cx))),
             )
+    }
+
+    fn open(&self, task: TaskId) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+        let agenda = self.agenda.clone();
+
+        move |_event, _window, cx| {
+            agenda.update(cx, |agenda, cx| agenda.select(task, cx));
+        }
     }
 
     fn row_title(index: usize, task: &Task, cx: &App) -> Div {

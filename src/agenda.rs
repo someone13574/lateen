@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::ops::Range;
 use std::time::Duration;
 
 use chrono::{DateTime, Local, Timelike};
@@ -17,6 +18,7 @@ pub struct Agenda {
     pin: Option<Block>,
     schedule: Schedule,
     planned_at: i64,
+    selected: Option<TaskId>,
 }
 
 impl Agenda {
@@ -34,7 +36,22 @@ impl Agenda {
             pin: None,
             tasks,
             log,
+            selected: None,
         }
+    }
+
+    pub fn selected(&self) -> Option<TaskId> {
+        self.selected
+    }
+
+    pub fn select(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        self.selected = Some(task);
+        cx.notify();
+    }
+
+    pub fn deselect(&mut self, cx: &mut Context<Self>) {
+        self.selected = None;
+        cx.notify();
     }
 
     pub fn schedule(&self) -> &Schedule {
@@ -55,6 +72,19 @@ impl Agenda {
         pending.sort_by_key(|session| Reverse(session.end));
 
         pending
+    }
+
+    pub fn logged(&self, task: TaskId, run: &Range<i32>) -> Vec<Session> {
+        let mut sessions: Vec<_> = self
+            .log
+            .iter()
+            .filter(|session| session.within(task, run))
+            .copied()
+            .collect();
+
+        sessions.sort_by_key(|session| session.start);
+
+        sessions
     }
 
     pub fn progress(&self, task: &Task, now: i32) -> Option<(i32, i32)> {
@@ -166,6 +196,28 @@ impl Agenda {
         };
 
         self.record(task, start, end, 0, Outcome::Skipped, cx);
+    }
+
+    pub fn edit(&mut self, task: TaskId, edit: impl FnOnce(&mut Task), cx: &mut Context<Self>) {
+        let Some(target) = self.tasks.iter_mut().find(|other| other.id == task) else {
+            return;
+        };
+
+        edit(target);
+        self.plan(cx.global::<Clock>().now());
+        cx.notify();
+    }
+
+    pub fn remove(&mut self, task: TaskId, cx: &mut Context<Self>) {
+        if self.pin.as_ref().is_some_and(|pin| pin.task == task) {
+            self.pin = None;
+        }
+
+        self.tasks.retain(|other| other.id != task);
+        self.log.retain(|session| session.task != task);
+        self.selected = None;
+        self.plan(cx.global::<Clock>().now());
+        cx.notify();
     }
 
     fn hold(&mut self, now: i32) {
