@@ -7,6 +7,7 @@ use crate::block::BlockView;
 use crate::button::ClickHandler;
 use crate::clock::Clock;
 use crate::grid::Grid;
+use crate::session::Outcome;
 use crate::task::TaskId;
 
 pub struct DayColumns {
@@ -56,11 +57,22 @@ impl DayColumns {
                 schedule.day(day as i32, area, now)
             })
             .map(|block| {
-                let task = block.task();
+                let (task, start) = (block.task(), block.start());
 
-                block.on_click(self.open(task))
+                block
+                    .on_click(self.open(task))
+                    .on_done(self.settle(task, start, Outcome::Done))
+                    .on_skip(self.settle(task, start, Outcome::Skipped))
             })
             .collect()
+    }
+
+    fn settle(&self, task: TaskId, start: i32, outcome: Outcome) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, |agenda, cx| agenda.confirm(task, start, outcome, cx));
+        })
     }
 
     fn open(&self, task: TaskId) -> Box<ClickHandler> {

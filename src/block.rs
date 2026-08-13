@@ -3,8 +3,8 @@ use std::ops::Range;
 
 use gpui::prelude::*;
 use gpui::{
-    App, Bounds, BoxShadow, Div, ElementId, FontWeight, Pixels, Rgba, Role, SharedString, Text,
-    Window, div, pattern_slash, px,
+    App, Bounds, BoxShadow, Div, ElementId, FontWeight, Pixels, Rgba, Role, SharedString, Stateful,
+    Text, Window, div, pattern_slash, px,
 };
 
 use crate::button::ClickHandler;
@@ -197,12 +197,16 @@ pub struct BlockView {
     color: BlockColor,
     state: BlockState,
     skipped: bool,
+    unconfirmed: bool,
+    start: i32,
     work_start: i32,
     work: i32,
     span: i32,
     segments: Vec<Segment>,
     bounds: Bounds<Pixels>,
     on_click: Option<Box<ClickHandler>>,
+    on_done: Option<Box<ClickHandler>>,
+    on_skip: Option<Box<ClickHandler>>,
 }
 
 impl BlockView {
@@ -211,6 +215,7 @@ impl BlockView {
     const RING_WIDTH: Pixels = px(2.0);
     const HATCH_PITCH: f32 = 4.0 * SQRT_2;
     const COMPACT_HEIGHT: Pixels = px(21.0);
+    const VERDICT_HEIGHT: Pixels = px(20.0);
     const META_HEIGHT: Pixels = px(30.0);
     const PLACE_HEIGHT: Pixels = px(44.0);
 
@@ -223,12 +228,16 @@ impl BlockView {
             color: block.color?,
             state: BlockState::new(block, now),
             skipped: block.outcome == Some(Outcome::Skipped),
+            unconfirmed: block.outcome == Some(Outcome::Assumed),
+            start: block.start,
             work_start: block.work_start(),
             work: block.work(),
             span: block.span(),
             segments: block.segments.clone(),
             bounds,
             on_click: None,
+            on_done: None,
+            on_skip: None,
         })
     }
 
@@ -236,8 +245,22 @@ impl BlockView {
         self.task
     }
 
+    pub fn start(&self) -> i32 {
+        self.start
+    }
+
     pub fn on_click(mut self, on_click: Box<ClickHandler>) -> Self {
         self.on_click = Some(on_click);
+        self
+    }
+
+    pub fn on_done(mut self, on_done: Box<ClickHandler>) -> Self {
+        self.on_done = Some(on_done);
+        self
+    }
+
+    pub fn on_skip(mut self, on_skip: Box<ClickHandler>) -> Self {
+        self.on_skip = Some(on_skip);
         self
     }
 
@@ -369,6 +392,62 @@ impl BlockView {
             })
     }
 
+    fn verdict(&mut self, cx: &App) -> Option<Div> {
+        let (done, skip) = (self.on_done.take()?, self.on_skip.take()?);
+
+        if !self.unconfirmed || self.bounds.size.height < Self::VERDICT_HEIGHT {
+            return None;
+        }
+
+        Some(
+            div()
+                .absolute()
+                .top(px(2.0))
+                .right(px(3.0))
+                .flex()
+                .items_start()
+                .gap(px(3.0))
+                .child(
+                    self.verdict_button(("block-done", self.index), "It happened", done, cx)
+                        .text_size(px(10.0))
+                        .line_height(px(10.0))
+                        .hover(|style| style.text_color(cx.theme().link_fg))
+                        .child(Text::new_inaccessible("✓".into())),
+                )
+                .child(
+                    self.verdict_button(("block-skip", self.index), "It did not happen", skip, cx)
+                        .text_size(px(9.0))
+                        .line_height(px(9.0))
+                        .hover(|style| style.text_color(cx.theme().danger_fg))
+                        .child(Text::new_inaccessible("✕".into())),
+                ),
+        )
+    }
+
+    fn verdict_button(
+        &self,
+        id: impl Into<ElementId>,
+        label: &'static str,
+        on_click: Box<ClickHandler>,
+        cx: &App,
+    ) -> Stateful<Div> {
+        div()
+            .id(id.into())
+            .role(Role::Button)
+            .aria_label(label)
+            .flex()
+            .flex_none()
+            .size(px(16.0))
+            .items_center()
+            .justify_center()
+            .text_color(cx.theme().dim_fg)
+            .cursor_pointer()
+            .on_click(move |_event, window, cx| {
+                cx.stop_propagation();
+                on_click(window, cx);
+            })
+    }
+
     fn fill(top: bool, bottom: bool) -> Div {
         let radius = Self::CORNER_RADIUS - Self::BORDER_WIDTH;
 
@@ -379,8 +458,9 @@ impl BlockView {
 }
 
 impl RenderOnce for BlockView {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = self.state.colors(self.color, cx);
+        let verdict = self.verdict(cx);
 
         div()
             .id(("block", self.index))
@@ -409,6 +489,7 @@ impl RenderOnce for BlockView {
             })
             .children(self.segments(&colors))
             .child(self.label(&colors, cx))
+            .children(verdict)
             .when_some(self.on_click, |block, on_click| {
                 block.cursor_pointer().on_click(move |_event, window, cx| {
                     cx.stop_propagation();
