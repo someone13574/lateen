@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use chrono::{Days, Weekday};
 use gpui::prelude::*;
 use gpui::{
@@ -35,6 +37,7 @@ pub struct Editor {
     break_minutes: Entity<InputState>,
     prep: Entity<InputState>,
     cleanup: Entity<InputState>,
+    priority: Entity<SelectState>,
     repeat: Entity<SelectState>,
     earliest: Entity<SelectState>,
     deadline: Entity<SelectState>,
@@ -65,6 +68,7 @@ impl Editor {
             break_minutes: Self::field(Self::set_break_minutes, window, cx),
             prep: Self::field(Self::set_prep, window, cx),
             cleanup: Self::field(Self::set_cleanup, window, cx),
+            priority: cx.new(|cx| SelectState::new(window, cx)),
             repeat: cx.new(|cx| SelectState::new(window, cx)),
             earliest: cx.new(|cx| SelectState::new(window, cx)),
             deadline: cx.new(|cx| SelectState::new(window, cx)),
@@ -293,37 +297,15 @@ impl Editor {
         };
     }
 
-    fn once_days(task: &mut Task) -> Option<(&mut i32, &mut i32)> {
-        match &mut task.kind {
-            TaskKind::Fixed {
-                recurrence:
-                    Recurrence::Once {
-                        earliest_day,
-                        deadline_day,
-                    },
-                ..
-            } => Some((earliest_day, deadline_day)),
-            TaskKind::Flexible(Flexible {
-                repeat:
-                    Repeat::Once {
-                        earliest_day,
-                        deadline_day,
-                    },
-                ..
-            }) => Some((earliest_day, deadline_day)),
-            _ => None,
-        }
-    }
-
     fn set_earliest(task: &mut Task, day: i32) {
-        if let Some((earliest_day, deadline_day)) = Self::once_days(task) {
+        if let Some((earliest_day, deadline_day)) = task.once_days() {
             *earliest_day = day;
             *deadline_day = (*deadline_day).max(day);
         }
     }
 
     fn set_deadline(task: &mut Task, day: i32) {
-        if let Some((earliest_day, deadline_day)) = Self::once_days(task) {
+        if let Some((earliest_day, deadline_day)) = task.once_days() {
             *deadline_day = day;
             *earliest_day = (*earliest_day).min(day);
         }
@@ -542,19 +524,26 @@ impl Editor {
     }
 
     fn sessions_list(&self, splittable: bool, cx: &App) -> Option<Div> {
-        let now = cx.global::<Clock>().minute_of_day() as i32;
+        let clock = cx.global::<Clock>().minute_of_day();
+        let now = clock as i32;
         let agenda = self.agenda.read(cx);
         let task = agenda.task(self.task)?;
-        let run = task.run(now.div_euclid(Block::MINUTES_PER_DAY));
-        let past = agenda.logged(self.task, &run);
-        let mut future: Vec<_> = agenda
+        let mut ahead: Vec<_> = agenda
             .schedule()
             .blocks()
             .filter(|block| block.task == self.task && block.end() > now)
             .cloned()
             .collect();
 
-        future.sort_by_key(|block| block.start);
+        ahead.sort_by_key(|block| block.start);
+
+        let run = Self::run(task, &ahead, agenda, now);
+        let past = agenda.logged(self.task, &run);
+        let mut future: Vec<_> = ahead
+            .into_iter()
+            .filter(|block| run.contains(&block.start))
+            .collect();
+
         if !splittable {
             future.truncate(past.is_empty() as usize);
         }
@@ -571,8 +560,19 @@ impl Editor {
                     cx,
                 ))
                 .children(past.iter().map(|session| self.past_row(session, cx)))
-                .children(future.iter().map(|block| self.future_row(block, cx))),
+                .children(future.iter().map(|block| self.future_row(block, clock, cx))),
         )
+    }
+
+    fn run(task: &Task, ahead: &[Block], agenda: &Agenda, now: i32) -> Range<i32> {
+        let current = task.run(now.div_euclid(Block::MINUTES_PER_DAY));
+        let started = !agenda.logged(task.id, &current).is_empty()
+            || ahead.iter().any(|block| current.contains(&block.start));
+
+        match ahead.first() {
+            Some(next) if !started => task.run(next.start.div_euclid(Block::MINUTES_PER_DAY)),
+            _ => current,
+        }
     }
 
     fn length(id: usize, minutes: i32, cx: &App) -> Div {
@@ -600,8 +600,9 @@ impl Editor {
     fn day_tag(day: i32, cx: &App) -> String {
         match day {
             0 => "Today".to_string(),
+            1 => "Tomorrow".to_string(),
             day => (cx.global::<Clock>().now().date_naive() + Days::new(day.max(0) as u64))
-                .format("%a")
+                .format("%a %-d")
                 .to_string(),
         }
     }
@@ -622,7 +623,25 @@ impl Editor {
         }
     }
 
-    fn verdict(&self, start: i32) -> Div {
+    fn countdown(minutes: f32) -> String {
+        let seconds = (minutes.max(0.0) * 60.0).round() as i32;
+
+        match (seconds / 3600, seconds / 60 % 60, seconds % 60) {
+            (0, minutes, seconds) => format!("{minutes:02}:{seconds:02}"),
+            (hours, minutes, seconds) => format!("{hours}:{minutes:02}:{seconds:02}"),
+        }
+    }
+
+    fn verdict(&self, session: &Session, cx: &App) -> Div {
+        let theme = *cx.theme();
+        let start = session.start;
+        let swatch = self
+            .agenda
+            .read(cx)
+            .task(self.task)
+            .and_then(|task| task.color)
+            .map_or(theme.accent_bg, |color| theme.swatch(color));
+
         div()
             .flex()
             .flex_none()
@@ -630,11 +649,18 @@ impl Editor {
             .child(
                 Button::new(("session-done", start as usize), "✓")
                     .fixed(px(22.0), px(20.0))
+                    .when(session.outcome == Outcome::Done, |button| {
+                        button.active(swatch, theme.accent_fg)
+                    })
                     .on_click(self.settle(start, Outcome::Done)),
             )
             .child(
                 Button::new(("session-skip", start as usize), "✕")
                     .fixed(px(22.0), px(20.0))
+                    .glyph(px(10.0))
+                    .when(session.outcome == Outcome::Skipped, |button| {
+                        button.active(theme.danger_fg, theme.card_bg)
+                    })
                     .on_click(self.settle(start, Outcome::Skipped)),
             )
     }
@@ -644,7 +670,7 @@ impl Editor {
         let task = self.task;
 
         Box::new(move |_window, cx| {
-            agenda.update(cx, |agenda, cx| agenda.confirm(task, start, outcome, cx));
+            agenda.update(cx, |agenda, cx| agenda.toggle(task, start, outcome, cx));
         })
     }
 
@@ -657,15 +683,27 @@ impl Editor {
         })
     }
 
-    fn future_row(&self, block: &Block, cx: &App) -> Div {
+    fn future_row(&self, block: &Block, now: f32, cx: &App) -> Div {
         let theme = *cx.theme();
         let start = block.work_start();
+        let running = block.start as f32 <= now;
+        let border = match (running, block.color) {
+            (true, Some(color)) => theme.now_card(color).border,
+            _ => theme.rule,
+        };
 
-        Self::session_row(theme.card_bg, theme.rule)
+        Self::session_row(theme.card_bg, border)
             .child(Self::session_text(
                 start as usize,
                 Self::range_label(start, start + block.work(), cx),
-                "planned",
+                match running {
+                    true => format!(
+                        "running, {} left",
+                        Self::countdown(block.end() as f32 - now)
+                    )
+                    .into(),
+                    false => "planned".into(),
+                },
                 theme.bottom_bar_time_fg,
                 cx,
             ))
@@ -698,7 +736,7 @@ impl Editor {
         .child(Self::session_text(
             id,
             Self::range_label(session.start, session.end, cx),
-            Self::outcome_label(session.outcome),
+            Self::outcome_label(session.outcome).into(),
             if session.outcome == Outcome::Skipped {
                 theme.faint_fg
             } else {
@@ -707,7 +745,7 @@ impl Editor {
             cx,
         ))
         .child(Self::length(id, session.work, cx))
-        .child(self.verdict(session.start))
+        .child(self.verdict(session, cx))
     }
 
     fn session_row(bg: Rgba, border: Rgba) -> Div {
@@ -724,7 +762,7 @@ impl Editor {
             .bg(bg)
     }
 
-    fn session_text(id: usize, range: String, note: &'static str, fg: Rgba, cx: &App) -> Div {
+    fn session_text(id: usize, range: String, note: SharedString, fg: Rgba, cx: &App) -> Div {
         div()
             .flex_1()
             .min_w_0()
@@ -738,7 +776,7 @@ impl Editor {
                 div()
                     .text_size(px(10.0))
                     .text_color(cx.theme().faint_fg)
-                    .child(Text::new(("session-note", id).into(), note.into())),
+                    .child(Text::new(("session-note", id).into(), note)),
             )
     }
 
@@ -1103,19 +1141,30 @@ impl Editor {
         )
     }
 
-    fn priorities(&self, priority: Priority, cx: &App) -> Div {
-        let choices = [
-            (Priority::Lowest, "Lowest"),
-            (Priority::Low, "Low"),
-            (Priority::Normal, "Normal"),
-            (Priority::High, "High"),
-            (Priority::Highest, "Highest"),
-        ];
+    fn priorities(&self, priority: Priority) -> Select {
+        let agenda = self.agenda.clone();
+        let task = self.task;
+        let options = ["Lowest", "Low", "Normal", "High", "Highest"]
+            .map(SharedString::from)
+            .to_vec();
 
-        div().flex().gap(px(3.0)).children(
-            choices
-                .map(|(choice, label)| self.priority_chip(choice, label, choice == priority, cx)),
-        )
+        Select::new("priority", "Priority", self.priority.clone(), options)
+            .selected(priority as usize)
+            .on_select(move |index, _window, cx| {
+                agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| task.priority = Self::ranked(index), cx)
+                });
+            })
+    }
+
+    fn ranked(index: usize) -> Priority {
+        match index {
+            0 => Priority::Lowest,
+            1 => Priority::Low,
+            3 => Priority::High,
+            4 => Priority::Highest,
+            _ => Priority::Normal,
+        }
     }
 
     fn day_chip(&self, day: Weekday, selected: bool, cx: &App) -> Stateful<Div> {
@@ -1136,33 +1185,6 @@ impl Editor {
         .on_click(move |_event, _window, cx| {
             agenda.update(cx, |agenda, cx| {
                 agenda.edit(task, |task| Self::toggle_day(task, day), cx)
-            });
-        })
-    }
-
-    fn priority_chip(
-        &self,
-        priority: Priority,
-        label: &'static str,
-        selected: bool,
-        cx: &App,
-    ) -> Stateful<Div> {
-        let agenda = self.agenda.clone();
-        let task = self.task;
-
-        Self::toggle(
-            ("priority", priority as usize),
-            label.into(),
-            selected,
-            cx.theme().dim_fg,
-            cx,
-        )
-        .rounded(px(4.0))
-        .py(px(4.0))
-        .text_size(px(10.5))
-        .on_click(move |_event, _window, cx| {
-            agenda.update(cx, |agenda, cx| {
-                agenda.edit(task, |task| task.priority = priority, cx)
             });
         })
     }
@@ -1233,7 +1255,7 @@ impl Render for Editor {
         )
         .child(Self::kinds(fixed, &editor, cx))
         .child(Self::heading("Priority", cx))
-        .child(self.priorities(priority, cx))
+        .child(self.priorities(priority))
         .children(fixed.then(|| self.when(recurrence, cx)))
         .children((!fixed).then(|| self.how_much(repeat, cx)))
         .children(match repeat {

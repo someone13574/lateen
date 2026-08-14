@@ -97,7 +97,7 @@ impl Import {
             .child(
                 div()
                     .text_size(px(10.5))
-                    .text_color(cx.theme().faint_fg)
+                    .text_color(cx.theme().dim_fg)
                     .child(Text::new(
                         ("source-detail", index).into(),
                         source.detail.into(),

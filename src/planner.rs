@@ -243,12 +243,17 @@ impl<'a> Planner<'a> {
             let prefer = Self::prefer(instance, slots, slots - pieces.len() + position);
 
             if let Some((start, relax)) = self.find(instance, span, from, prefer) {
+                let conflict = self
+                    .collision(start..start + span, task.priority, false)
+                    .is_some();
+
                 self.reserve(start, span, task.priority);
                 placements.push(Placement {
                     instance: index,
                     start,
                     work: *work,
                     segments,
+                    conflict,
                 });
                 squeezed |= relax > 0;
                 from = start + span + spacing;
@@ -283,6 +288,7 @@ impl<'a> Planner<'a> {
             .log
             .iter()
             .filter(|session| session.within(instance.task.id, &(instance.start..instance.end)))
+            .filter(|session| session.happened())
             .map(|session| session.end + spacing)
             .chain(self.held(instance).map(|pin| pin.end() + spacing))
             .max();
@@ -633,13 +639,14 @@ struct Placement {
     start: i32,
     work: i32,
     segments: Vec<Segment>,
+    conflict: bool,
 }
 
 impl Placement {
     fn block(self, instances: &[Instance]) -> Block {
         let instance = &instances[self.instance];
 
-        Planner::block(instance.task, self.start, self.segments)
+        Planner::block(instance.task, self.start, self.segments).conflicting(self.conflict)
     }
 
     fn end(&self) -> i32 {

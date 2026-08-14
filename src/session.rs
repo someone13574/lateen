@@ -37,6 +37,10 @@ impl Session {
         }
     }
 
+    pub fn happened(&self) -> bool {
+        self.outcome != Outcome::Skipped
+    }
+
     pub fn within(&self, task: TaskId, run: &Range<i32>) -> bool {
         self.task == task && self.start >= run.start && self.start < run.end
     }

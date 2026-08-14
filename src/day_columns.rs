@@ -56,10 +56,12 @@ impl DayColumns {
 
                 schedule.day(day as i32, area, now)
             })
-            .map(|block| {
+            .enumerate()
+            .map(|(index, block)| {
                 let (task, start) = (block.task(), block.start());
 
                 block
+                    .index(index)
                     .on_click(self.open(task))
                     .on_done(self.settle(task, start, Outcome::Done))
                     .on_skip(self.settle(task, start, Outcome::Skipped))

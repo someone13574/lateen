@@ -14,7 +14,7 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub const COLUMN_WIDTH: Pixels = px(219.0);
+    pub const COLUMN_WIDTH: Pixels = px(218.0);
     pub const GUIDE_WIDTH: Pixels = px(1.0);
 
     pub fn new(days: usize, day_height: Pixels, corners: Corners<Pixels>) -> Self {

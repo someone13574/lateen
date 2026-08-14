@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 use std::ops::Range;
 use std::time::Duration;
 
-use chrono::{DateTime, Local, Timelike};
+use chrono::{DateTime, Local, NaiveDate, Timelike};
 use gpui::App;
 use gpui::prelude::*;
 
@@ -18,6 +18,7 @@ pub struct Agenda {
     pin: Option<Block>,
     schedule: Schedule,
     planned_at: i64,
+    planned_on: NaiveDate,
     selected: Option<TaskId>,
 }
 
@@ -33,6 +34,7 @@ impl Agenda {
         Self {
             schedule: Schedule::plan(&mut tasks, &log, None, Self::HORIZON, now),
             planned_at: Self::minute(now),
+            planned_on: now.date_naive(),
             pin: None,
             tasks,
             log,
@@ -97,14 +99,19 @@ impl Agenda {
         }
 
         let run = task.run(now.div_euclid(Block::MINUTES_PER_DAY));
-        let done = self
+        let done: i32 = self
             .log
             .iter()
             .filter(|session| session.within(task.id, &run))
             .map(Session::credited)
             .sum();
+        let running = self
+            .pin
+            .as_ref()
+            .filter(|pin| pin.task == task.id && run.contains(&pin.start))
+            .map_or(0, |pin| pin.elapsed_work(now));
 
-        Some((done, flexible.total))
+        Some((done + running, flexible.total))
     }
 
     pub fn task(&self, id: TaskId) -> Option<&Task> {
@@ -115,7 +122,7 @@ impl Agenda {
         self.schedule
             .blocks()
             .filter(|block| block.start <= now && block.end() > now)
-            .max_by_key(|block| self.task(block.task).map(|task| task.priority))
+            .min_by_key(|block| Reverse(self.task(block.task).map(|task| task.priority)))
     }
 
     pub fn upcoming(&self, now: i32) -> Option<&Block> {
@@ -131,11 +138,13 @@ impl Agenda {
             return false;
         }
 
+        self.roll(now.date_naive());
+
         let minute = Self::minute_of_day(now);
         self.sweep(minute);
+        self.settle(minute);
         self.hold(minute);
         self.plan(now);
-        self.hold(minute);
 
         true
     }
@@ -150,6 +159,19 @@ impl Agenda {
             session.outcome = outcome;
             self.plan(cx.global::<Clock>().now());
             cx.notify();
+        }
+    }
+
+    pub fn toggle(&mut self, task: TaskId, start: i32, outcome: Outcome, cx: &mut Context<Self>) {
+        let settled = self
+            .log
+            .iter()
+            .find(|session| session.task == task && session.start == start)
+            .is_some_and(|session| session.outcome == outcome);
+
+        match settled {
+            true => self.confirm(task, start, Outcome::Assumed, cx),
+            false => self.confirm(task, start, outcome, cx),
         }
     }
 
@@ -315,6 +337,7 @@ impl Agenda {
     }
 
     fn plan(&mut self, now: DateTime<Local>) {
+        self.roll(now.date_naive());
         self.schedule = Schedule::plan(
             &mut self.tasks,
             &self.log,
@@ -323,6 +346,42 @@ impl Agenda {
             now,
         );
         self.planned_at = Self::minute(now);
+        self.hold(Self::minute_of_day(now));
+    }
+
+    fn roll(&mut self, today: NaiveDate) {
+        let days = (today - self.planned_on).num_days() as i32;
+        if days == 0 {
+            return;
+        }
+
+        self.planned_on = today;
+
+        if days > 0 {
+            self.sweep(days * Block::MINUTES_PER_DAY);
+        }
+
+        self.rebase(days);
+    }
+
+    fn rebase(&mut self, days: i32) {
+        let shift = days * Block::MINUTES_PER_DAY;
+
+        for session in &mut self.log {
+            session.start -= shift;
+            session.end -= shift;
+        }
+
+        if let Some(pin) = &mut self.pin {
+            pin.start -= shift;
+        }
+
+        for task in &mut self.tasks {
+            if let Some((earliest, deadline)) = task.once_days() {
+                *earliest -= days;
+                *deadline -= days;
+            }
+        }
     }
 
     fn sweep(&mut self, now: i32) {
@@ -335,6 +394,22 @@ impl Agenda {
             .collect();
 
         self.log.extend(elapsed);
+    }
+
+    fn settle(&mut self, now: i32) {
+        let Self { tasks, log, .. } = self;
+
+        for session in log.iter_mut().filter(|s| s.outcome == Outcome::Assumed) {
+            let splittable = tasks
+                .iter()
+                .any(|task| task.id == session.task && task.splittable());
+            let midnight =
+                (session.start.div_euclid(Block::MINUTES_PER_DAY) + 1) * Block::MINUTES_PER_DAY;
+
+            if !splittable && now >= midnight {
+                session.outcome = Outcome::Done;
+            }
+        }
     }
 
     fn recorded(&self, block: &Block) -> bool {

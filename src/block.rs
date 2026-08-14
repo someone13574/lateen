@@ -4,7 +4,7 @@ use std::ops::Range;
 use gpui::prelude::*;
 use gpui::{
     App, Bounds, BoxShadow, Div, ElementId, FontWeight, Pixels, Rgba, Role, SharedString, Stateful,
-    Text, Window, div, pattern_slash, px,
+    Text, Window, div, pattern_slash, px, rgb,
 };
 
 use crate::button::ClickHandler;
@@ -22,6 +22,7 @@ pub struct Block {
     pub start: i32,
     pub segments: Vec<Segment>,
     pub outcome: Option<Outcome>,
+    pub conflict: bool,
 }
 
 impl Block {
@@ -41,7 +42,13 @@ impl Block {
             start,
             segments,
             outcome: None,
+            conflict: false,
         }
+    }
+
+    pub fn conflicting(mut self, conflict: bool) -> Self {
+        self.conflict = conflict;
+        self
     }
 
     pub fn logged(task: &Task, session: &Session) -> Self {
@@ -56,6 +63,7 @@ impl Block {
                 minutes: (session.end - session.start).max(1),
             }],
             outcome: Some(session.outcome),
+            conflict: false,
         }
     }
 
@@ -76,8 +84,16 @@ impl Block {
         self.start.div_euclid(Self::MINUTES_PER_DAY)
     }
 
-    pub fn minute_of_day(&self) -> i32 {
-        self.start.rem_euclid(Self::MINUTES_PER_DAY)
+    pub fn covers(&self, day: i32) -> bool {
+        let midnight = day * Self::MINUTES_PER_DAY;
+
+        self.start < midnight + Self::MINUTES_PER_DAY && self.end() > midnight
+    }
+
+    pub fn slice(&self, day: i32) -> Range<i32> {
+        let midnight = day * Self::MINUTES_PER_DAY;
+
+        (self.start - midnight).max(0)..(self.end() - midnight).min(Self::MINUTES_PER_DAY)
     }
 
     pub fn work_start(&self) -> i32 {
@@ -183,7 +199,12 @@ impl BlockState {
             Self::Current => theme.current_block(color),
             Self::Past => faded(Self::PAST),
             Self::Happened => faded(Self::HAPPENED),
-            Self::Skipped => faded(Self::SKIPPED),
+            Self::Skipped => BlockColors {
+                border: theme
+                    .grid_bg
+                    .blend(theme.skipped_border.alpha(Self::SKIPPED)),
+                ..faded(Self::SKIPPED)
+            },
         }
     }
 }
@@ -198,10 +219,13 @@ pub struct BlockView {
     state: BlockState,
     skipped: bool,
     unconfirmed: bool,
+    conflict: bool,
     start: i32,
     work_start: i32,
     work: i32,
-    span: i32,
+    visible: Range<i32>,
+    opens: bool,
+    closes: bool,
     segments: Vec<Segment>,
     bounds: Bounds<Pixels>,
     on_click: Option<Box<ClickHandler>>,
@@ -216,12 +240,16 @@ impl BlockView {
     const HATCH_PITCH: f32 = 4.0 * SQRT_2;
     const COMPACT_HEIGHT: Pixels = px(21.0);
     const VERDICT_HEIGHT: Pixels = px(20.0);
+    const CONFLICT_DIAMETER: Pixels = px(7.0);
     const META_HEIGHT: Pixels = px(30.0);
     const PLACE_HEIGHT: Pixels = px(44.0);
 
-    pub fn new(index: usize, block: &Block, bounds: Bounds<Pixels>, now: i32) -> Option<Self> {
+    pub fn new(block: &Block, day: i32, bounds: Bounds<Pixels>, now: i32) -> Option<Self> {
+        let midnight = day * Block::MINUTES_PER_DAY;
+        let slice = block.slice(day);
+
         Some(Self {
-            index,
+            index: 0,
             task: block.task,
             title: block.title.clone(),
             place: block.place.clone(),
@@ -229,10 +257,13 @@ impl BlockView {
             state: BlockState::new(block, now),
             skipped: block.outcome == Some(Outcome::Skipped),
             unconfirmed: block.outcome == Some(Outcome::Assumed),
+            conflict: block.conflict,
             start: block.start,
             work_start: block.work_start(),
             work: block.work(),
-            span: block.span(),
+            visible: midnight + slice.start - block.start..midnight + slice.end - block.start,
+            opens: block.start >= midnight,
+            closes: block.end() <= midnight + Block::MINUTES_PER_DAY,
             segments: block.segments.clone(),
             bounds,
             on_click: None,
@@ -247,6 +278,11 @@ impl BlockView {
 
     pub fn start(&self) -> i32 {
         self.start
+    }
+
+    pub fn index(mut self, index: usize) -> Self {
+        self.index = index;
+        self
     }
 
     pub fn on_click(mut self, on_click: Box<ClickHandler>) -> Self {
@@ -265,44 +301,66 @@ impl BlockView {
     }
 
     fn segments(&self, colors: &BlockColors) -> Vec<Div> {
-        let content = self.bounds.size.height - Self::BORDER_WIDTH * 2.0;
-        let last = self.segments.len() - 1;
-        let mut top = px(0.0);
+        let edges = u8::from(self.opens) + u8::from(self.closes);
+        let content = self.bounds.size.height - Self::BORDER_WIDTH * edges as f32;
+        let visible = (self.visible.end - self.visible.start).max(1) as f32;
+        let mut drawn = Vec::new();
         let mut elapsed = 0;
+        let mut top = px(0.0);
 
-        self.segments
-            .iter()
+        for segment in &self.segments {
+            let natural = elapsed;
+            let start = natural.max(self.visible.start);
+            elapsed += segment.minutes;
+
+            let end = elapsed.min(self.visible.end);
+            if end <= start {
+                continue;
+            }
+
+            let bottom = content * ((end - self.visible.start) as f32 / visible);
+            drawn.push((segment.kind, bottom - top, natural >= self.visible.start));
+            top = bottom;
+        }
+
+        let last = drawn.len().saturating_sub(1);
+
+        drawn
+            .into_iter()
             .enumerate()
-            .map(|(index, segment)| {
-                elapsed += segment.minutes;
-                let bottom = content * (elapsed as f32 / self.span as f32);
-                let height = bottom - top;
-                top = bottom;
-
-                Self::segment(segment, height, index == 0, index == last, colors)
+            .map(|(index, (kind, height, line))| {
+                Self::segment(
+                    kind,
+                    height,
+                    index == 0 && self.opens,
+                    index == last && self.closes,
+                    line,
+                    colors,
+                )
             })
             .collect()
     }
 
     fn segment(
-        segment: &Segment,
+        kind: SegmentKind,
         height: Pixels,
         top: bool,
         bottom: bool,
+        line: bool,
         colors: &BlockColors,
     ) -> Div {
-        let work = segment.kind == SegmentKind::Work;
+        let work = kind == SegmentKind::Work;
 
         Self::fill(top, bottom)
             .flex_none()
             .h(height)
             .bg(if work { colors.work } else { colors.transition })
-            .when(!work, |segment| {
+            .when(line && !work, |segment| {
                 segment
                     .border_t(Self::BORDER_WIDTH)
                     .border_color(colors.segment_line)
             })
-            .when(segment.kind.hatched(), |segment| {
+            .when(kind.hatched(), |segment| {
                 segment.child(Self::hatch(top, bottom, colors))
             })
     }
@@ -392,6 +450,18 @@ impl BlockView {
             })
     }
 
+    fn conflict(&self) -> Option<Div> {
+        self.conflict.then(|| {
+            div()
+                .absolute()
+                .top(px(3.0))
+                .right(px(3.0))
+                .size(Self::CONFLICT_DIAMETER)
+                .rounded_full()
+                .bg(rgb(0xb0813c))
+        })
+    }
+
     fn verdict(&mut self, cx: &App) -> Option<Div> {
         let (done, skip) = (self.on_done.take()?, self.on_skip.take()?);
 
@@ -474,12 +544,19 @@ impl RenderOnce for BlockView {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(Self::CORNER_RADIUS)
-            .border(Self::BORDER_WIDTH)
-            .border_color(match self.skipped {
-                true => cx.theme().skipped_border,
-                false => colors.border,
+            .when(self.opens, |block| {
+                block
+                    .rounded_t(Self::CORNER_RADIUS)
+                    .border_t(Self::BORDER_WIDTH)
             })
+            .when(self.closes, |block| {
+                block
+                    .rounded_b(Self::CORNER_RADIUS)
+                    .border_b(Self::BORDER_WIDTH)
+            })
+            .border_l(Self::BORDER_WIDTH)
+            .border_r(Self::BORDER_WIDTH)
+            .border_color(colors.border)
             .when(self.skipped, |block| block.border_dashed())
             .when(self.state == BlockState::Current, |block| {
                 block.shadow(vec![
@@ -489,6 +566,7 @@ impl RenderOnce for BlockView {
             })
             .children(self.segments(&colors))
             .child(self.label(&colors, cx))
+            .children(self.conflict())
             .children(verdict)
             .when_some(self.on_click, |block, on_click| {
                 block.cursor_pointer().on_click(move |_event, window, cx| {

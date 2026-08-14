@@ -52,16 +52,15 @@ impl Schedule {
             .blocks
             .iter()
             .chain(&self.past)
-            .enumerate()
-            .filter(|(_, block)| block.day() == day)
+            .filter(|block| block.covers(day))
             .collect();
 
-        blocks.sort_by_key(|(_, block)| block.start);
+        blocks.sort_by_key(|block| block.start);
 
         let mut bounds: Vec<_> = Self::columns(&blocks)
             .iter()
             .zip(&blocks)
-            .map(|(column, (_, block))| Self::bounds(block, *column, area))
+            .map(|(column, block)| Self::bounds(block, day, *column, area))
             .collect();
 
         Self::separate(&mut bounds);
@@ -69,7 +68,7 @@ impl Schedule {
         blocks
             .iter()
             .zip(bounds)
-            .filter_map(|((index, block), bounds)| BlockView::new(*index, block, bounds, now))
+            .filter_map(|(block, bounds)| BlockView::new(block, day, bounds, now))
             .collect()
     }
 
@@ -87,11 +86,11 @@ impl Schedule {
         area.size.height * (minutes as f32 / Block::MINUTES_PER_DAY as f32)
     }
 
-    fn clusters(blocks: &[(usize, &Block)]) -> Vec<Range<usize>> {
+    fn clusters(blocks: &[&Block]) -> Vec<Range<usize>> {
         let mut clusters: Vec<Range<usize>> = Vec::new();
         let mut end = i32::MIN;
 
-        for (position, (_, block)) in blocks.iter().enumerate() {
+        for (position, block) in blocks.iter().enumerate() {
             match clusters.last_mut() {
                 Some(cluster) if block.start < end => cluster.end = position + 1,
                 _ => clusters.push(position..position + 1),
@@ -103,7 +102,7 @@ impl Schedule {
         clusters
     }
 
-    fn columns(blocks: &[(usize, &Block)]) -> Vec<(usize, usize)> {
+    fn columns(blocks: &[&Block]) -> Vec<(usize, usize)> {
         let mut columns = Vec::with_capacity(blocks.len());
 
         for cluster in Self::clusters(blocks) {
@@ -118,19 +117,21 @@ impl Schedule {
 
     fn bounds(
         block: &Block,
+        day: i32,
         (lane, lanes): (usize, usize),
         area: Bounds<Pixels>,
     ) -> Bounds<Pixels> {
         let width = area.size.width / lanes as f32;
+        let slice = block.slice(day);
 
         Bounds {
             origin: point(
                 area.origin.x + width * lane as f32 + Self::LANE_PADDING,
-                area.origin.y + Self::scale(block.minute_of_day(), area),
+                area.origin.y + Self::scale(slice.start, area),
             ),
             size: size(
                 width - Self::LANE_PADDING * 2.0,
-                Self::scale(block.span(), area).max(Self::MIN_HEIGHT),
+                Self::scale(slice.end - slice.start, area).max(Self::MIN_HEIGHT),
             ),
         }
     }
@@ -149,12 +150,12 @@ impl Schedule {
         }
     }
 
-    fn lanes(blocks: &[(usize, &Block)]) -> Vec<usize> {
+    fn lanes(blocks: &[&Block]) -> Vec<usize> {
         let mut ends: Vec<i32> = Vec::new();
 
         blocks
             .iter()
-            .map(|(_, block)| {
+            .map(|block| {
                 let lane = ends
                     .iter()
                     .position(|end| *end <= block.start)

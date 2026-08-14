@@ -136,7 +136,10 @@ impl Clock {
     }
 
     pub fn minute_of_day(&self) -> f32 {
-        self.now().num_seconds_from_midnight() as f32 / 60.0
+        let now = self.now();
+        let fraction = (now.nanosecond() % 1_000_000_000) as f32 / 1e9;
+
+        (now.num_seconds_from_midnight() as f32 + fraction) / 60.0
     }
 
     pub fn shift(minutes: i64, cx: &mut App) {

@@ -6,7 +6,7 @@ use gpui::{
 };
 
 use crate::agenda::Agenda;
-use crate::button::{Button, ClickHandler};
+use crate::button::{Button, ClickHandler, Verdict};
 use crate::clock::{Clock, ClockFormat};
 use crate::import::Import;
 use crate::session::{Outcome, Session};
@@ -338,11 +338,14 @@ impl CommitmentList {
             .child(
                 Button::new(("pending-done", index), "✓")
                     .fixed(px(24.0), px(22.0))
+                    .verdict(Verdict::Affirm)
                     .on_click(self.settle(task, start, Outcome::Done)),
             )
             .child(
                 Button::new(("pending-skip", index), "✕")
                     .fixed(px(24.0), px(22.0))
+                    .glyph(px(10.0))
+                    .verdict(Verdict::Deny)
                     .on_click(self.settle(task, start, Outcome::Skipped)),
             )
     }

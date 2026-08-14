@@ -8,6 +8,23 @@ use crate::theme::ActiveTheme;
 
 pub type ClickHandler = dyn Fn(&mut Window, &mut App) + 'static;
 
+#[derive(Clone, Copy)]
+pub enum Verdict {
+    Affirm,
+    Deny,
+}
+
+impl Verdict {
+    fn hover(self, cx: &App) -> (Rgba, Rgba, Rgba) {
+        let theme = cx.theme();
+
+        match self {
+            Self::Affirm => (theme.chip_bg, theme.chip_border, theme.link_fg),
+            Self::Deny => (theme.danger_bg, theme.danger_border, theme.danger_fg),
+        }
+    }
+}
+
 #[derive(IntoElement)]
 pub struct Button {
     id: ElementId,
@@ -19,6 +36,9 @@ pub struct Button {
     chip: Option<(bool, Rgba)>,
     size: Option<Size<Pixels>>,
     padding: Option<Point<Pixels>>,
+    glyph: Option<Pixels>,
+    verdict: Option<Verdict>,
+    active: Option<(Rgba, Rgba)>,
     on_click: Option<Box<ClickHandler>>,
 }
 
@@ -34,8 +54,26 @@ impl Button {
             chip: None,
             size: None,
             padding: None,
+            glyph: None,
+            verdict: None,
+            active: None,
             on_click: None,
         }
+    }
+
+    pub fn glyph(mut self, size: Pixels) -> Self {
+        self.glyph = Some(size);
+        self
+    }
+
+    pub fn verdict(mut self, verdict: Verdict) -> Self {
+        self.verdict = Some(verdict);
+        self
+    }
+
+    pub fn active(mut self, fill: Rgba, fg: Rgba) -> Self {
+        self.active = Some((fill, fg));
+        self
     }
 
     pub fn small(mut self) -> Self {
@@ -112,7 +150,7 @@ impl RenderOnce for Button {
                     .h(size.height)
                     .justify_center()
                     .rounded(px(4.0))
-                    .text_size(px(11.0))
+                    .text_size(self.glyph.unwrap_or(px(11.0)))
                     .text_color(cx.theme().chip_fg)
             })
             .when(self.bare, |button| {
@@ -164,6 +202,14 @@ impl RenderOnce for Button {
                     .when(!selected, |button| {
                         button.hover(|style| style.bg(theme.button_hover_bg))
                     })
+            })
+            .when_some(self.verdict, |button, verdict| {
+                let (bg, border, fg) = verdict.hover(cx);
+
+                button.hover(move |style| style.bg(bg).border_color(border).text_color(fg))
+            })
+            .when_some(self.active, |button, (fill, fg)| {
+                button.border_color(fill).bg(fill).text_color(fg)
             })
             .on_click(move |_event, window, cx| {
                 cx.stop_propagation();

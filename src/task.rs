@@ -181,7 +181,12 @@ impl Task {
                 earliest_day,
                 deadline_day,
             } => earliest_day * Block::MINUTES_PER_DAY..(deadline_day + 1) * Block::MINUTES_PER_DAY,
-            repeat => day * Block::MINUTES_PER_DAY..(day + repeat.cycle()) * Block::MINUTES_PER_DAY,
+            repeat => {
+                let cycle = repeat.cycle();
+                let opens = day.div_euclid(cycle) * cycle;
+
+                opens * Block::MINUTES_PER_DAY..(opens + cycle) * Block::MINUTES_PER_DAY
+            }
         }
     }
 
@@ -195,6 +200,28 @@ impl Task {
                 start, duration, ..
             } => *start..*start + *duration,
             TaskKind::Flexible(flexible) => flexible.window.clone(),
+        }
+    }
+
+    pub fn once_days(&mut self) -> Option<(&mut i32, &mut i32)> {
+        match &mut self.kind {
+            TaskKind::Fixed {
+                recurrence:
+                    Recurrence::Once {
+                        earliest_day,
+                        deadline_day,
+                    },
+                ..
+            } => Some((earliest_day, deadline_day)),
+            TaskKind::Flexible(Flexible {
+                repeat:
+                    Repeat::Once {
+                        earliest_day,
+                        deadline_day,
+                    },
+                ..
+            }) => Some((earliest_day, deadline_day)),
+            _ => None,
         }
     }
 

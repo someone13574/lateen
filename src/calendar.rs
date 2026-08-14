@@ -22,16 +22,18 @@ pub struct Calendar {
     vertical: ScrollHandle,
     day_height: Pixels,
     day_columns: Entity<DayColumns>,
+    revealed: bool,
 }
 
 impl Calendar {
-    const GUTTER_WIDTH: Pixels = px(53.0);
+    const GUTTER_WIDTH: Pixels = px(52.0);
     const GUTTER_BORDER: Pixels = px(1.0);
-    const HEADER_HEIGHT: Pixels = px(47.0);
+    const HEADER_HEIGHT: Pixels = px(46.0);
     const MIN_LABEL_SPACING: Pixels = px(66.0);
     const CORNER_RADIUS: Pixels = px(8.0);
     const MIN_WIDTH: Pixels = px(420.0);
     const MIN_DAY_HEIGHT: Pixels = px(72.0);
+    const NOW_INSET: Pixels = px(200.0);
     const MAX_DAY_HEIGHT: Pixels = px(5760.0);
     const DAYS: usize = Agenda::HORIZON as usize;
     const ZOOM_RATE: f32 = 0.002;
@@ -45,7 +47,20 @@ impl Calendar {
             vertical: ScrollHandle::new(),
             day_height,
             day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, agenda, cx)),
+            revealed: false,
         }
+    }
+
+    fn reveal_now(&mut self, cx: &App) {
+        if self.revealed || self.vertical.bounds().size.height <= px(0.0) {
+            return;
+        }
+
+        let minute = cx.global::<Clock>().minute_of_day();
+        let top = self.day_height() * (minute / Block::MINUTES_PER_DAY as f32) - Self::NOW_INSET;
+
+        self.vertical.set_offset(point(px(0.0), -top.max(px(0.0))));
+        self.revealed = true;
     }
 
     fn day_height(&self) -> Pixels {
@@ -313,6 +328,8 @@ impl Calendar {
 
 impl Render for Calendar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.reveal_now(cx);
+
         let tiling = match window.window_decorations() {
             Decorations::Client { tiling } => tiling,
             Decorations::Server => Tiling::tiled(),

@@ -92,13 +92,17 @@ impl Running {
         }
     }
 
-    fn render(&self, cx: &App) -> Div {
+    fn render(&self, window: &mut Window, cx: &App) -> Div {
         let theme = *cx.theme();
         let tint = self.color.map(|color| theme.now_card(color));
         let phase_fg = match (self.working, self.color) {
             (true, Some(color)) => theme.swatch(color),
             _ => theme.muted_fg,
         };
+
+        if !cx.reduce_motion() {
+            window.request_animation_frame();
+        }
 
         div()
             .rounded(px(8.0))
@@ -364,14 +368,14 @@ impl NowCard {
 }
 
 impl RenderOnce for NowCard {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         div()
             .flex_none()
             .p(px(12.0))
             .border_b(px(1.0))
             .border_color(cx.theme().panel_divider)
             .child(match &self {
-                Self::Running(running) => running.render(cx),
+                Self::Running(running) => running.render(window, cx),
                 Self::Idle(next) => Self::idle(next.as_ref(), cx),
             })
     }
