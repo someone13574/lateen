@@ -8,6 +8,7 @@ use gpui::{
 use crate::agenda::Agenda;
 use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
+use crate::import::Import;
 use crate::session::{Outcome, Session};
 use crate::task::{Priority, Repeat, Task, TaskId, TaskKind};
 use crate::theme::ActiveTheme;
@@ -15,11 +16,12 @@ use crate::theme::ActiveTheme;
 #[derive(IntoElement)]
 pub struct CommitmentList {
     agenda: Entity<Agenda>,
+    import: Entity<Import>,
 }
 
 impl CommitmentList {
-    pub fn new(agenda: Entity<Agenda>) -> Self {
-        Self { agenda }
+    pub fn new(agenda: Entity<Agenda>, import: Entity<Import>) -> Self {
+        Self { agenda, import }
     }
 
     fn row(&self, index: usize, task: &Task, now: i32, cx: &App) -> Stateful<Div> {
@@ -434,6 +436,7 @@ impl RenderOnce for CommitmentList {
             .pt(px(10.0))
             .px(px(12.0))
             .pb(px(16.0))
+            .child(self.import.clone())
             .children(self.pending(cx))
             .child(self.group("Fixed", true, now, cx))
             .child(self.group("Flexible", false, now, cx))

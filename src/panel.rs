@@ -7,11 +7,13 @@ use gpui::{Entity, Pixels, Window, div, px};
 use crate::agenda::Agenda;
 use crate::commitment_list::CommitmentList;
 use crate::editor::Editor;
+use crate::import::Import;
 use crate::now_card::NowCard;
 use crate::theme::ActiveTheme;
 
 pub struct Panel {
     agenda: Entity<Agenda>,
+    import: Entity<Import>,
     editor: Option<Entity<Editor>>,
 }
 
@@ -19,7 +21,12 @@ impl Panel {
     const WIDTH: Pixels = px(340.0);
     const MIN_WIDTH: Pixels = px(264.0);
 
-    pub fn new(agenda: Entity<Agenda>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        agenda: Entity<Agenda>,
+        import: Entity<Import>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe_in(&agenda, window, |panel, agenda, window, cx| {
             panel.sync(&agenda, window, cx);
             cx.notify();
@@ -29,6 +36,7 @@ impl Panel {
 
         Self {
             agenda,
+            import,
             editor: None,
         }
     }
@@ -72,7 +80,9 @@ impl Render for Panel {
             .child(NowCard::new(&self.agenda, cx))
             .child(match &self.editor {
                 Some(editor) => editor.clone().into_any_element(),
-                None => CommitmentList::new(self.agenda.clone()).into_any_element(),
+                None => {
+                    CommitmentList::new(self.agenda.clone(), self.import.clone()).into_any_element()
+                }
             })
     }
 }

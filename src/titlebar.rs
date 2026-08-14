@@ -14,17 +14,23 @@ use crate::window_control::WindowControl;
 pub struct Titlebar {
     title: SharedString,
     on_new: Box<ClickHandler>,
+    on_import: Box<ClickHandler>,
 }
 
 impl Titlebar {
-    pub fn new(title: impl Into<SharedString>, on_new: Box<ClickHandler>) -> Self {
+    pub fn new(
+        title: impl Into<SharedString>,
+        on_new: Box<ClickHandler>,
+        on_import: Box<ClickHandler>,
+    ) -> Self {
         Self {
             title: title.into(),
             on_new,
+            on_import,
         }
     }
 
-    fn actions(on_new: Box<ClickHandler>) -> Div {
+    fn actions(on_new: Box<ClickHandler>, on_import: Box<ClickHandler>) -> Div {
         div()
             .flex()
             .flex_none()
@@ -36,7 +42,7 @@ impl Titlebar {
             })
             .on_mouse_move(|_event, _window, cx| cx.stop_propagation())
             .child(Button::new("new", "New").on_click(on_new))
-            .child(Button::new("import-calendar", "Import calendar"))
+            .child(Button::new("import-calendar", "Import calendar").on_click(on_import))
     }
 
     fn controls(window: &Window) -> Div {
@@ -83,7 +89,11 @@ impl Titlebar {
 
 impl RenderOnce for Titlebar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let Self { title, on_new } = self;
+        let Self {
+            title,
+            on_new,
+            on_import,
+        } = self;
         let decorations = window.window_decorations();
         let client = matches!(decorations, Decorations::Client { .. });
         let tiling = match decorations {
@@ -154,7 +164,7 @@ impl RenderOnce for Titlebar {
                 )
             })
             .child(div().flex_1())
-            .child(Self::actions(on_new))
+            .child(Self::actions(on_new, on_import))
             .when(client, |titlebar| titlebar.child(Self::controls(window)))
     }
 }

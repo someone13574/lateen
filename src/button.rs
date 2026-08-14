@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::{
-    App, ElementId, FontWeight, Pixels, Point, Role, SharedString, Size, Text, Window, div, point,
-    px, size,
+    App, ElementId, FontWeight, Pixels, Point, Rgba, Role, SharedString, Size, Text, Window, div,
+    point, px, size,
 };
 
 use crate::theme::ActiveTheme;
@@ -16,6 +16,7 @@ pub struct Button {
     filled: bool,
     bare: bool,
     stretch: bool,
+    chip: Option<(bool, Rgba)>,
     size: Option<Size<Pixels>>,
     padding: Option<Point<Pixels>>,
     on_click: Option<Box<ClickHandler>>,
@@ -30,6 +31,7 @@ impl Button {
             filled: false,
             bare: false,
             stretch: false,
+            chip: None,
             size: None,
             padding: None,
             on_click: None,
@@ -59,6 +61,11 @@ impl Button {
 
     pub fn stretch(mut self) -> Self {
         self.stretch = true;
+        self
+    }
+
+    pub fn chip(mut self, selected: bool, unselected_fg: Rgba) -> Self {
+        self.chip = Some((selected, unselected_fg));
         self
     }
 
@@ -126,11 +133,37 @@ impl RenderOnce for Button {
                     .font_weight(FontWeight::SEMIBOLD)
                     .hover(|style| style.bg(cx.theme().accent_hover_bg))
             })
-            .when(!self.filled && !self.bare, |button| {
+            .when(
+                !self.filled && !self.bare && self.chip.is_none(),
+                |button| {
+                    button
+                        .border_color(cx.theme().button_border)
+                        .bg(cx.theme().button_bg)
+                        .hover(|style| style.bg(cx.theme().button_hover_bg))
+                },
+            )
+            .when_some(self.chip, |button, (selected, unselected_fg)| {
+                let theme = *cx.theme();
+
                 button
-                    .border_color(cx.theme().button_border)
-                    .bg(cx.theme().button_bg)
-                    .hover(|style| style.bg(cx.theme().button_hover_bg))
+                    .border_color(if selected {
+                        theme.chip_border
+                    } else {
+                        theme.button_border
+                    })
+                    .bg(if selected {
+                        theme.chip_bg
+                    } else {
+                        theme.button_bg
+                    })
+                    .text_color(if selected {
+                        theme.link_fg
+                    } else {
+                        unselected_fg
+                    })
+                    .when(!selected, |button| {
+                        button.hover(|style| style.bg(theme.button_hover_bg))
+                    })
             })
             .on_click(move |_event, window, cx| {
                 cx.stop_propagation();

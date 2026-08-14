@@ -10,6 +10,7 @@ use crate::bottom_bar::BottomBar;
 use crate::button::ClickHandler;
 use crate::calendar::Calendar;
 use crate::clock::{Clock, ClockFormat};
+use crate::import::Import;
 use crate::input::InputState;
 use crate::panel::Panel;
 use crate::select::SelectState;
@@ -30,6 +31,7 @@ mod cursor;
 mod day_columns;
 mod editor;
 mod grid;
+mod import;
 mod input;
 mod now_card;
 mod panel;
@@ -48,6 +50,7 @@ const APP_NAME: &str = "Lateen";
 
 struct RootView {
     agenda: Entity<Agenda>,
+    import: Entity<Import>,
     calendar: Entity<Calendar>,
     panel: Entity<Panel>,
     bottom_bar: Entity<BottomBar>,
@@ -56,9 +59,21 @@ struct RootView {
 impl RootView {
     fn add_commitment(&self) -> Box<ClickHandler> {
         let agenda = self.agenda.clone();
+        let import = self.import.clone();
 
         Box::new(move |_window, cx| {
             agenda.update(cx, |agenda, cx| agenda.add(cx));
+            import.update(cx, |import, cx| import.close(cx));
+        })
+    }
+
+    fn import_calendar(&self) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+        let import = self.import.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, Agenda::deselect);
+            import.update(cx, |import, cx| import.toggle(cx));
         })
     }
 }
@@ -78,7 +93,11 @@ impl Render for RootView {
                         window.blur();
                     }
                 })
-                .child(Titlebar::new(APP_NAME, self.add_commitment()))
+                .child(Titlebar::new(
+                    APP_NAME,
+                    self.add_commitment(),
+                    self.import_calendar(),
+                ))
                 .child(
                     div()
                         .flex()
@@ -120,11 +139,13 @@ fn main() {
             Theme::init(window, cx);
 
             let agenda = cx.new(Agenda::new);
+            let import = cx.new(|_cx| Import::default());
 
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
-                panel: cx.new(|cx| Panel::new(agenda.clone(), window, cx)),
+                panel: cx.new(|cx| Panel::new(agenda.clone(), import.clone(), window, cx)),
                 agenda,
+                import,
                 bottom_bar: cx.new(BottomBar::new),
             })
         })
