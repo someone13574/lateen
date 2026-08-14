@@ -142,8 +142,10 @@ impl Clock {
         (now.num_seconds_from_midnight() as f32 + fraction) / 60.0
     }
 
-    pub fn shift(minutes: i64, cx: &mut App) {
-        cx.update_global::<Self, _>(|clock, _cx| clock.offset += Duration::minutes(minutes));
+    pub fn travel(minutes: f32, cx: &mut App) {
+        let step = Duration::milliseconds((minutes * 60_000.0) as i64);
+
+        cx.update_global::<Self, _>(|clock, _cx| clock.offset += step);
         cx.refresh_windows();
     }
 

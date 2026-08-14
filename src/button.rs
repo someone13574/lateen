@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use gpui::prelude::*;
 use gpui::{
-    App, ElementId, FontWeight, Pixels, Point, Rgba, Role, SharedString, Size, Text, Window, div,
-    point, px, size,
+    App, ElementId, FontWeight, MouseButton, Pixels, Point, Rgba, Role, SharedString, Size, Text,
+    Window, div, point, px, size,
 };
 
 use crate::theme::ActiveTheme;
@@ -40,6 +42,8 @@ pub struct Button {
     verdict: Option<Verdict>,
     active: Option<(Rgba, Rgba)>,
     on_click: Option<Box<ClickHandler>>,
+    on_press: Option<Box<ClickHandler>>,
+    on_release: Option<Rc<ClickHandler>>,
 }
 
 impl Button {
@@ -58,6 +62,8 @@ impl Button {
             verdict: None,
             active: None,
             on_click: None,
+            on_press: None,
+            on_release: None,
         }
     }
 
@@ -114,6 +120,16 @@ impl Button {
 
     pub fn on_click(mut self, on_click: Box<ClickHandler>) -> Self {
         self.on_click = Some(on_click);
+        self
+    }
+
+    pub fn on_press(mut self, on_press: Box<ClickHandler>) -> Self {
+        self.on_press = Some(on_press);
+        self
+    }
+
+    pub fn on_release(mut self, on_release: Box<ClickHandler>) -> Self {
+        self.on_release = Some(Rc::from(on_release));
         self
     }
 }
@@ -210,6 +226,22 @@ impl RenderOnce for Button {
             })
             .when_some(self.active, |button, (fill, fg)| {
                 button.border_color(fill).bg(fill).text_color(fg)
+            })
+            .when_some(self.on_press, |button, on_press| {
+                button.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                    on_press(window, cx);
+                })
+            })
+            .when_some(self.on_release, |button, on_release| {
+                let outside = on_release.clone();
+
+                button
+                    .on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                        on_release(window, cx);
+                    })
+                    .on_mouse_up_out(MouseButton::Left, move |_event, window, cx| {
+                        outside(window, cx);
+                    })
             })
             .on_click(move |_event, window, cx| {
                 cx.stop_propagation();
