@@ -27,7 +27,35 @@ pub struct Task {
     pub priority: Priority,
     pub prep: i32,
     pub cleanup: i32,
+    pub dates: Dates,
     pub kind: TaskKind,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct Dates {
+    pub from: Option<i32>,
+    pub until: Option<i32>,
+}
+
+impl Dates {
+    pub fn covers(self, day: i32) -> bool {
+        self.from.is_none_or(|from| day >= from) && self.until.is_none_or(|until| day <= until)
+    }
+
+    pub fn first(self) -> i32 {
+        self.from.unwrap_or(0)
+    }
+
+    pub fn span(self) -> Range<i32> {
+        let first = self.first();
+
+        first..self.until.unwrap_or(first) + 1
+    }
+
+    pub fn shift(&mut self, days: i32) {
+        self.from = self.from.map(|from| from - days);
+        self.until = self.until.map(|until| until - days);
+    }
 }
 
 pub enum TaskKind {
@@ -92,10 +120,10 @@ impl Task {
                 "Thesis draft, chapter 2",
                 weekdays(),
                 Flexible::new(300, 9 * 60, 18 * 60)
-                    .due(0, 4)
                     .sessions(45, 90, 120)
                     .breaks(50, 10),
             )
+            .due(0, 4)
             .priority(Priority::Highest)
             .transitions(5, 5),
             Self::flexible(
@@ -177,10 +205,11 @@ impl Task {
         };
 
         match flexible.repeat {
-            Repeat::Once {
-                earliest_day,
-                deadline_day,
-            } => earliest_day * Block::MINUTES_PER_DAY..(deadline_day + 1) * Block::MINUTES_PER_DAY,
+            Repeat::Never => {
+                let span = self.dates.span();
+
+                span.start * Block::MINUTES_PER_DAY..span.end * Block::MINUTES_PER_DAY
+            }
             repeat => {
                 let cycle = repeat.cycle();
                 let opens = day.div_euclid(cycle) * cycle;
@@ -203,26 +232,24 @@ impl Task {
         }
     }
 
-    pub fn once_days(&mut self) -> Option<(&mut i32, &mut i32)> {
-        match &mut self.kind {
-            TaskKind::Fixed {
-                recurrence:
-                    Recurrence::Once {
-                        earliest_day,
-                        deadline_day,
-                    },
-                ..
-            } => Some((earliest_day, deadline_day)),
-            TaskKind::Flexible(Flexible {
-                repeat:
-                    Repeat::Once {
-                        earliest_day,
-                        deadline_day,
-                    },
-                ..
-            }) => Some((earliest_day, deadline_day)),
-            _ => None,
+    pub fn repeats(&self) -> bool {
+        match &self.kind {
+            TaskKind::Fixed { recurrence, .. } => !matches!(recurrence, Recurrence::Never),
+            TaskKind::Flexible(flexible) => !matches!(flexible.repeat, Repeat::Never),
         }
+    }
+
+    pub fn due(mut self, from: i32, until: i32) -> Self {
+        self.dates = Dates {
+            from: Some(from),
+            until: Some(until),
+        };
+
+        if let TaskKind::Flexible(flexible) = &mut self.kind {
+            flexible.repeat = Repeat::Never;
+        }
+
+        self
     }
 
     fn new(title: impl Into<SharedString>, days: Vec<Weekday>, kind: TaskKind) -> Self {
@@ -235,6 +262,7 @@ impl Task {
             priority: Priority::Normal,
             prep: 0,
             cleanup: 0,
+            dates: Dates::default(),
             kind,
         }
     }
@@ -259,14 +287,6 @@ impl Flexible {
         }
     }
 
-    pub fn due(mut self, earliest_day: i32, deadline_day: i32) -> Self {
-        self.repeat = Repeat::Once {
-            earliest_day,
-            deadline_day,
-        };
-        self
-    }
-
     pub fn sessions(mut self, shortest: i32, preferred: i32, longest: i32) -> Self {
         self.sessions = Some(Sessions {
             shortest,
@@ -284,21 +304,18 @@ impl Flexible {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Repeat {
+    Never,
     Daily,
     Weekly,
     Biweekly,
     Monthly,
     Yearly,
-    Once {
-        earliest_day: i32,
-        deadline_day: i32,
-    },
 }
 
 impl Repeat {
     pub fn cycle(self) -> i32 {
         match self {
-            Self::Daily | Self::Once { .. } => 1,
+            Self::Never | Self::Daily => 1,
             Self::Weekly => 7,
             Self::Biweekly => 14,
             Self::Monthly => 30,
@@ -309,10 +326,7 @@ impl Repeat {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Recurrence {
-    Once {
-        earliest_day: i32,
-        deadline_day: i32,
-    },
+    Never,
     Weekly,
     Biweekly,
 }

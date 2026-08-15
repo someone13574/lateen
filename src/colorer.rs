@@ -10,11 +10,12 @@ pub struct Colorer<'a> {
 
 impl<'a> Colorer<'a> {
     const CLOSE: i32 = 240;
-    const TOUCHING: i32 = 20;
     const NEAR_ENOUGH: f32 = 0.5;
     const BAND: f32 = 0.15;
+    const LIKENESS: f32 = 0.5;
+    const TODAY_STARTS: i32 = 0;
 
-    pub fn color(tasks: &'a mut [Task], blocks: &mut [Block]) {
+    pub fn color(tasks: &'a mut [Task], blocks: &mut [Block], past: &mut [Block]) {
         for index in 0..tasks.len() {
             if tasks[index].color.is_some() {
                 continue;
@@ -24,15 +25,26 @@ impl<'a> Colorer<'a> {
             tasks[index].color = Some(color);
         }
 
+        let neighbours = {
+            let mut ordered: Vec<&Block> = blocks
+                .iter()
+                .chain(past.iter())
+                .filter(|block| block.end() > Self::TODAY_STARTS)
+                .collect();
+
+            ordered.sort_by_key(|block| block.start);
+            Self::neighbours(tasks, &ordered)
+        };
+
         let mut colorer = Self {
-            neighbours: Self::neighbours(tasks, blocks),
+            neighbours,
             widest: Self::widest(),
             tasks,
         };
 
         colorer.repaint();
 
-        for block in blocks {
+        for block in blocks.iter_mut().chain(past.iter_mut()) {
             block.color = Self::position(colorer.tasks, block.task)
                 .and_then(|task| colorer.tasks[task].color);
         }
@@ -77,7 +89,7 @@ impl<'a> Colorer<'a> {
         cost
     }
 
-    fn neighbours(tasks: &[Task], blocks: &[Block]) -> Vec<Neighbour> {
+    fn neighbours(tasks: &[Task], blocks: &[&Block]) -> Vec<Neighbour> {
         let mut neighbours = Vec::new();
 
         for (position, block) in blocks.iter().enumerate() {
@@ -134,7 +146,6 @@ impl<'a> Colorer<'a> {
     fn movers(&self, near_enough: f32) -> Vec<usize> {
         self.neighbours
             .iter()
-            .filter(|neighbour| neighbour.touching())
             .filter(|neighbour| {
                 self.tasks[neighbour.earlier]
                     .color
@@ -216,13 +227,12 @@ impl<'a> Colorer<'a> {
             total += weight;
         }
 
-        let spread = used.iter().copied().fold(1, i32::max) as f32;
-        let crowding = used[color as usize] as f32 / spread;
+        let reuse = used[color as usize] as f32;
 
         if total > 0.0 {
-            alike / total + crowding
+            reuse + (alike / total) * Self::LIKENESS
         } else {
-            crowding
+            reuse
         }
     }
 
@@ -235,7 +245,6 @@ impl<'a> Colorer<'a> {
     fn abutting(&self, index: usize) -> impl Iterator<Item = usize> {
         self.neighbours
             .iter()
-            .filter(|neighbour| neighbour.touching())
             .filter_map(move |neighbour| neighbour.other(index))
     }
 
@@ -270,10 +279,6 @@ struct Neighbour {
 }
 
 impl Neighbour {
-    fn touching(&self) -> bool {
-        self.gap <= Colorer::TOUCHING && self.between == 0
-    }
-
     fn other(&self, task: usize) -> Option<usize> {
         if self.earlier == task {
             Some(self.later)

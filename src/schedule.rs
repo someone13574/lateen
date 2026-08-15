@@ -35,12 +35,11 @@ impl Schedule {
             now.weekday(),
         );
 
-        Colorer::color(tasks, &mut blocks);
+        let mut past = Self::past(tasks, log);
 
-        Self {
-            past: Self::past(tasks, log),
-            blocks,
-        }
+        Colorer::color(tasks, &mut blocks, &mut past);
+
+        Self { past, blocks }
     }
 
     pub fn blocks(&self) -> impl Iterator<Item = &Block> {

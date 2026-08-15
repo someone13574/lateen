@@ -69,11 +69,10 @@ impl Running {
     }
 
     fn range(block: &Block, clock: ClockFormat) -> String {
-        let work_start = block.work_start();
         let range = format!(
             "{} to {}",
-            clock.time_label(work_start),
-            clock.time_label(work_start + block.work())
+            clock.time_label(block.start),
+            clock.time_label(block.end())
         );
 
         match &block.place {

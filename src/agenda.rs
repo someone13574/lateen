@@ -93,7 +93,7 @@ impl Agenda {
         let TaskKind::Flexible(flexible) = &task.kind else {
             return None;
         };
-        let one_off = matches!(flexible.repeat, Repeat::Once { .. });
+        let one_off = matches!(flexible.repeat, Repeat::Never);
         if !task.splittable() && !one_off {
             return None;
         }
@@ -226,6 +226,11 @@ impl Agenda {
         };
 
         edit(target);
+
+        if self.pin.as_ref().is_some_and(|pin| pin.task == task) {
+            self.pin = None;
+        }
+
         self.plan(cx.global::<Clock>().now());
         cx.notify();
     }
@@ -377,10 +382,7 @@ impl Agenda {
         }
 
         for task in &mut self.tasks {
-            if let Some((earliest, deadline)) = task.once_days() {
-                *earliest -= days;
-                *deadline -= days;
-            }
+            task.dates.shift(days);
         }
     }
 

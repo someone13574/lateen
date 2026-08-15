@@ -96,16 +96,6 @@ impl Block {
         (self.start - midnight).max(0)..(self.end() - midnight).min(Self::MINUTES_PER_DAY)
     }
 
-    pub fn work_start(&self) -> i32 {
-        self.start
-            + self
-                .segments
-                .iter()
-                .take_while(|segment| segment.kind == SegmentKind::Prep)
-                .map(|segment| segment.minutes)
-                .sum::<i32>()
-    }
-
     pub fn elapsed_work(&self, now: i32) -> i32 {
         let mut start = self.start;
         let mut worked = 0;
@@ -221,7 +211,7 @@ pub struct BlockView {
     unconfirmed: bool,
     conflict: bool,
     start: i32,
-    work_start: i32,
+    span: i32,
     work: i32,
     visible: Range<i32>,
     opens: bool,
@@ -259,7 +249,7 @@ impl BlockView {
             unconfirmed: block.outcome == Some(Outcome::Assumed),
             conflict: block.conflict,
             start: block.start,
-            work_start: block.work_start(),
+            span: block.span(),
             work: block.work(),
             visible: midnight + slice.start - block.start..midnight + slice.end - block.start,
             opens: block.start >= midnight,
@@ -388,8 +378,8 @@ impl BlockView {
 
         format!(
             "{} - {} ({})",
-            clock.time_label(self.work_start),
-            clock.time_label(self.work_start + self.work),
+            clock.time_label(self.start),
+            clock.time_label(self.start + self.span),
             Self::duration_label(self.work)
         )
     }

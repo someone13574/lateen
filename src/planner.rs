@@ -55,7 +55,13 @@ impl<'a> Planner<'a> {
         let (mut placements, squeezed) = planner.place_all(&instances, &order, fixed);
 
         if squeezed.contains(&true) {
-            order.sort_by_key(|instance| !squeezed[*instance]);
+            order.sort_by_key(|instance| {
+                (
+                    Reverse(instances[*instance].task.priority),
+                    !squeezed[*instance],
+                )
+            });
+
             placements = planner.place_all(&instances, &order, fixed).0;
         }
 
@@ -84,8 +90,11 @@ impl<'a> Planner<'a> {
                 continue;
             };
             let span = Self::allowance(duration, overrun_percent);
+            let reach = Self::span(&Self::segments(task, span, None))
+                .div_euclid(Block::MINUTES_PER_DAY)
+                + 1;
 
-            for day in 0..self.horizon {
+            for day in -reach..self.horizon {
                 if !self.places_on(task, recurrence, day) {
                     continue;
                 }
@@ -95,7 +104,7 @@ impl<'a> Planner<'a> {
                 self.reserve(block_start, Self::span(&segments), task.priority);
                 blocks.push(Self::block(task, block_start, segments));
 
-                if matches!(recurrence, Recurrence::Once { .. }) {
+                if matches!(recurrence, Recurrence::Never) {
                     break;
                 }
             }
@@ -106,7 +115,12 @@ impl<'a> Planner<'a> {
 
     fn hold(&mut self) -> Option<Block> {
         let pin = self.pin?;
-        let priority = self.tasks.iter().find(|task| task.id == pin.task)?.priority;
+        let task = self.tasks.iter().find(|task| task.id == pin.task)?;
+        let priority = task.priority;
+
+        if !matches!(task.kind, TaskKind::Flexible(_)) {
+            return None;
+        }
 
         self.reserve(pin.start, pin.span(), priority);
 
@@ -159,12 +173,9 @@ impl<'a> Planner<'a> {
         };
 
         match flexible.repeat {
-            Repeat::Once {
-                earliest_day,
-                deadline_day,
-            } => vec![self.instance(task, flexible, earliest_day..deadline_day + 1)],
+            Repeat::Never => vec![self.instance(task, flexible, task.dates.span())],
             Repeat::Daily => (0..self.horizon)
-                .filter(|day| self.occurs_on(task, *day))
+                .filter(|day| self.occurs_on(task, *day) && task.dates.covers(*day))
                 .map(|day| self.instance(task, flexible, day..day + 1))
                 .collect(),
             repeat => {
@@ -172,6 +183,7 @@ impl<'a> Planner<'a> {
 
                 (0..self.horizon)
                     .step_by(cycle as usize)
+                    .filter(|day| task.dates.covers(*day))
                     .map(|day| self.instance(task, flexible, day..day + cycle))
                     .collect()
             }
@@ -309,7 +321,7 @@ impl<'a> Planner<'a> {
     ) -> Option<(i32, usize)> {
         for relax in 0..Self::RELAXATIONS.len() {
             let target = prefer
-                .filter(|prefer| *prefer > from)
+                .map(|prefer| prefer.max(from))
                 .and_then(|prefer| self.scan(instance, span, prefer, relax));
 
             let start = target
@@ -579,11 +591,12 @@ impl<'a> Planner<'a> {
     }
 
     fn places_on(&self, task: &Task, recurrence: Recurrence, day: i32) -> bool {
+        if !task.dates.covers(day) {
+            return false;
+        }
+
         match recurrence {
-            Recurrence::Once {
-                earliest_day,
-                deadline_day,
-            } => (earliest_day..=deadline_day).contains(&day),
+            Recurrence::Never => day == task.dates.first(),
             Recurrence::Weekly => self.occurs_on(task, day),
             Recurrence::Biweekly => self.occurs_on(task, day) && self.week(day) % 2 == 0,
         }

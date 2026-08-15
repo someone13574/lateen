@@ -171,13 +171,13 @@ impl CommitmentList {
                 clock.time_label(start + duration),
                 Self::duration_label(*duration)
             ),
-            TaskKind::Flexible(flexible) => match flexible.repeat {
-                Repeat::Once { deadline_day, .. } => format!(
+            TaskKind::Flexible(flexible) => match (flexible.repeat, task.dates.until) {
+                (Repeat::Never, Some(until)) => format!(
                     "{} by {}",
                     Self::duration_label(flexible.total),
-                    Self::day_label(deadline_day, cx)
+                    Self::day_label(until, cx)
                 ),
-                repeat => format!(
+                (repeat, _) => format!(
                     "{} {}",
                     Self::duration_label(flexible.total),
                     Self::cadence_label(repeat)
@@ -193,7 +193,7 @@ impl CommitmentList {
             Repeat::Biweekly => "every other week",
             Repeat::Monthly => "each month",
             Repeat::Yearly => "each year",
-            Repeat::Once { .. } => "once",
+            Repeat::Never => "once",
         }
     }
 
