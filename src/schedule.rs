@@ -46,7 +46,7 @@ impl Schedule {
         self.blocks.iter()
     }
 
-    pub fn day(&self, day: i32, area: Bounds<Pixels>, now: i32) -> Vec<BlockView> {
+    pub fn day(&self, day: i32, area: Bounds<Pixels>, now: f32) -> Vec<BlockView> {
         let mut blocks: Vec<_> = self
             .blocks
             .iter()

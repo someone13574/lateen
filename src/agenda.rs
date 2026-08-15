@@ -8,6 +8,7 @@ use gpui::prelude::*;
 
 use crate::block::Block;
 use crate::clock::Clock;
+use crate::notifier::Notifier;
 use crate::schedule::Schedule;
 use crate::session::{Outcome, Session};
 use crate::task::{Repeat, Task, TaskId, TaskKind};
@@ -25,11 +26,13 @@ pub struct Agenda {
 impl Agenda {
     pub const HORIZON: i32 = 14;
 
+    const SAMPLE: Duration = Duration::from_secs(1);
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut tasks = Task::seed();
         let log = Vec::new();
         let now = cx.global::<Clock>().now();
-        Self::follow_minutes(cx);
+        Self::follow_clock(cx);
 
         Self {
             schedule: Schedule::plan(&mut tasks, &log, None, Self::HORIZON, now),
@@ -118,17 +121,17 @@ impl Agenda {
         self.tasks.iter().find(|task| task.id == id)
     }
 
-    pub fn running(&self, now: i32) -> Option<&Block> {
+    pub fn running(&self, now: f32) -> Option<&Block> {
         self.schedule
             .blocks()
-            .filter(|block| block.start <= now && block.end() > now)
+            .filter(|block| block.start as f32 <= now && block.end() as f32 > now)
             .min_by_key(|block| Reverse(self.task(block.task).map(|task| task.priority)))
     }
 
-    pub fn upcoming(&self, now: i32) -> Option<&Block> {
+    pub fn upcoming(&self, now: f32) -> Option<&Block> {
         self.schedule
             .blocks()
-            .filter(|block| block.start > now)
+            .filter(|block| block.start as f32 > now)
             .min_by_key(|block| block.start)
     }
 
@@ -430,28 +433,25 @@ impl Agenda {
         now.num_seconds_from_midnight() as i32 / 60
     }
 
-    fn follow_minutes(cx: &mut Context<Self>) {
+    fn follow_clock(cx: &mut Context<Self>) {
         cx.spawn(async move |agenda, cx| {
             loop {
-                cx.background_executor()
-                    .timer(Self::until_next_minute())
-                    .await;
+                cx.background_executor().timer(Self::SAMPLE).await;
 
-                let replanned =
-                    agenda.update(cx, |agenda, cx| agenda.replan(cx).then(|| cx.notify()));
-                if replanned.is_err() {
+                let ticked = agenda.update(cx, |agenda, cx| {
+                    if agenda.replan(cx) {
+                        cx.notify();
+                    }
+
+                    Notifier::announce(agenda, cx);
+                });
+
+                if ticked.is_err() {
                     break;
                 }
             }
         })
         .detach();
-    }
-
-    fn until_next_minute() -> Duration {
-        let now = Local::now();
-        let elapsed = now.second() as u64 * 1_000_000_000 + now.nanosecond() as u64 % 1_000_000_000;
-
-        Duration::from_nanos(60_000_000_000_u64.saturating_sub(elapsed).max(1))
     }
 
     fn minute(now: DateTime<Local>) -> i64 {

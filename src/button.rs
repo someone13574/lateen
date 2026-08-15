@@ -193,7 +193,9 @@ impl RenderOnce for Button {
                     button
                         .border_color(cx.theme().button_border)
                         .bg(cx.theme().button_bg)
-                        .hover(|style| style.bg(cx.theme().button_hover_bg))
+                        .when(self.verdict.is_none(), |button| {
+                            button.hover(|style| style.bg(cx.theme().button_hover_bg))
+                        })
                 },
             )
             .when_some(self.chip, |button, (selected, unselected_fg)| {

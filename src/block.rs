@@ -111,13 +111,13 @@ impl Block {
         worked
     }
 
-    pub fn phase(&self, now: i32) -> Option<(SegmentKind, Range<i32>)> {
+    pub fn phase(&self, now: f32) -> Option<(SegmentKind, Range<i32>)> {
         let mut start = self.start;
 
         for segment in &self.segments {
             let end = start + segment.minutes;
 
-            if now < end {
+            if now < end as f32 {
                 return Some((segment.kind, start..end));
             }
 
@@ -170,12 +170,12 @@ impl BlockState {
     const HAPPENED: f32 = 0.45;
     const SKIPPED: f32 = 0.34;
 
-    fn new(block: &Block, now: i32) -> Self {
+    fn new(block: &Block, now: f32) -> Self {
         match block.outcome {
             Some(Outcome::Skipped) => Self::Skipped,
             Some(Outcome::Assumed | Outcome::Done) => Self::Happened,
-            None if block.end() <= now => Self::Past,
-            None if block.start <= now => Self::Current,
+            None if block.end() as f32 <= now => Self::Past,
+            None if block.start as f32 <= now => Self::Current,
             None => Self::Upcoming,
         }
     }
@@ -226,7 +226,7 @@ pub struct BlockView {
 impl BlockView {
     const CORNER_RADIUS: Pixels = px(4.0);
     const BORDER_WIDTH: Pixels = px(1.0);
-    const RING_WIDTH: Pixels = px(2.0);
+    const OUTLINE_WIDTH: Pixels = px(2.0);
     const HATCH_PITCH: f32 = 4.0 * SQRT_2;
     const COMPACT_HEIGHT: Pixels = px(21.0);
     const VERDICT_HEIGHT: Pixels = px(20.0);
@@ -234,7 +234,7 @@ impl BlockView {
     const META_HEIGHT: Pixels = px(30.0);
     const PLACE_HEIGHT: Pixels = px(44.0);
 
-    pub fn new(block: &Block, day: i32, bounds: Bounds<Pixels>, now: i32) -> Option<Self> {
+    pub fn new(block: &Block, day: i32, bounds: Bounds<Pixels>, now: f32) -> Option<Self> {
         let midnight = day * Block::MINUTES_PER_DAY;
         let slice = block.slice(day);
 
@@ -550,8 +550,8 @@ impl RenderOnce for BlockView {
             .when(self.skipped, |block| block.border_dashed())
             .when(self.state == BlockState::Current, |block| {
                 block.shadow(vec![
-                    BoxShadow::new(px(0.0), px(0.0), colors.ring.into())
-                        .spread_radius(Self::RING_WIDTH),
+                    BoxShadow::new(px(0.0), px(0.0), colors.outline.into())
+                        .spread_radius(Self::OUTLINE_WIDTH),
                 ])
             })
             .children(self.segments(&colors))

@@ -1,8 +1,9 @@
-use ashpd::desktop::settings::Settings;
 use chrono::{DateTime, Duration, Local, NaiveTime, Timelike};
 use futures_lite::StreamExt;
 use gpui::prelude::*;
 use gpui::{App, Global, TaskExt};
+use zbus::zvariant::OwnedValue;
+use zbus::{Connection, Message, Proxy};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ClockFormat {
@@ -11,6 +12,9 @@ pub enum ClockFormat {
 }
 
 impl ClockFormat {
+    const SERVICE: &str = "org.freedesktop.portal.Desktop";
+    const OBJECT: &str = "/org/freedesktop/portal/desktop";
+    const INTERFACE: &str = "org.freedesktop.portal.Settings";
     const NAMESPACE: &str = "org.gnome.desktop.interface";
     const KEY: &str = "clock-format";
 
@@ -18,17 +22,17 @@ impl ClockFormat {
         cx.set_global(Self::TwelveHour);
 
         cx.spawn(async move |cx| {
-            let settings = Settings::new().await?;
+            let session = Connection::session().await?;
+            let settings =
+                Proxy::new(&session, Self::SERVICE, Self::OBJECT, Self::INTERFACE).await?;
+            let mut changes = settings.receive_signal("SettingChanged").await?;
 
-            if let Ok(format) = settings.read::<String>(Self::NAMESPACE, Self::KEY).await {
+            if let Some(format) = Self::read(&settings).await {
                 cx.update(|cx| Self::apply(&format, cx));
             }
 
-            let mut changes = settings
-                .receive_setting_changed_with_args::<String>(Self::NAMESPACE, Self::KEY)
-                .await?;
             while let Some(change) = changes.next().await {
-                if let Ok(format) = change {
+                if let Some(format) = Self::changed(&change) {
                     cx.update(|cx| Self::apply(&format, cx));
                 }
             }
@@ -105,6 +109,26 @@ impl ClockFormat {
             }
             Self::TwentyFourHour => format!("{hour:02}:00"),
         }
+    }
+
+    async fn read(settings: &Proxy<'static>) -> Option<String> {
+        let format: OwnedValue = settings
+            .call("ReadOne", &(Self::NAMESPACE, Self::KEY))
+            .await
+            .ok()?;
+
+        String::try_from(format).ok()
+    }
+
+    fn changed(change: &Message) -> Option<String> {
+        let (namespace, key, format) = change
+            .body()
+            .deserialize::<(String, String, OwnedValue)>()
+            .ok()?;
+
+        (namespace == Self::NAMESPACE && key == Self::KEY)
+            .then(|| String::try_from(format).ok())
+            .flatten()
     }
 
     fn apply(format: &str, cx: &mut App) {

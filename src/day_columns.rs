@@ -1,4 +1,3 @@
-use chrono::Timelike;
 use gpui::prelude::*;
 use gpui::{App, Bounds, Corners, Entity, Pixels, Window, div, point, px, size};
 
@@ -44,7 +43,7 @@ impl DayColumns {
     }
 
     fn blocks(&self, cx: &App) -> Vec<BlockView> {
-        let now = cx.global::<Clock>().now().num_seconds_from_midnight() as i32 / 60;
+        let now = cx.global::<Clock>().minute_of_day();
         let schedule = self.agenda.read(cx).schedule();
 
         (0..self.days)

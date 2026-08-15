@@ -12,6 +12,7 @@ use crate::calendar::Calendar;
 use crate::clock::{Clock, ClockFormat};
 use crate::import::Import;
 use crate::input::InputState;
+use crate::notifier::Notifier;
 use crate::panel::Panel;
 use crate::select::SelectState;
 use crate::theme::{ActiveTheme, Theme};
@@ -33,6 +34,7 @@ mod editor;
 mod grid;
 mod import;
 mod input;
+mod notifier;
 mod now_card;
 mod panel;
 mod planner;
@@ -140,6 +142,8 @@ fn main() {
 
             let agenda = cx.new(Agenda::new);
             let import = cx.new(|_cx| Import::default());
+
+            Notifier::init(agenda.clone(), cx);
 
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),

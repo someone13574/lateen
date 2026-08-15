@@ -58,7 +58,7 @@ pub struct BlockColors {
     pub transition: Rgba,
     pub segment_line: Rgba,
     pub border: Rgba,
-    pub ring: Rgba,
+    pub outline: Rgba,
     pub fg: Rgba,
     pub meta_fg: Rgba,
 }
@@ -75,7 +75,7 @@ struct BlockRecipe {
 }
 
 impl BlockColors {
-    const RING: f32 = 0.32;
+    const OUTLINE: f32 = 0.32;
 
     pub fn faded(self, over: Rgba, strength: f32) -> Self {
         let fade = |color: Rgba| over.blend(color.alpha(strength));
@@ -85,7 +85,7 @@ impl BlockColors {
             transition: fade(self.transition),
             segment_line: fade(self.segment_line),
             border: fade(self.border),
-            ring: fade(self.ring),
+            outline: fade(self.outline),
             fg: fade(self.fg),
             meta_fg: fade(self.meta_fg),
         }
@@ -99,7 +99,7 @@ impl BlockColors {
             transition: tint(recipe.work * recipe.transition),
             segment_line: tint(recipe.segment_line),
             border: tint(recipe.border),
-            ring: tint(Self::RING),
+            outline: tint(Self::OUTLINE),
             fg: recipe.fg,
             meta_fg: recipe.meta_fg,
         }

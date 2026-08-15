@@ -39,7 +39,7 @@ impl Running {
     fn new(block: &Block, task: Option<&Task>, agenda: Entity<Agenda>, now: f32, cx: &App) -> Self {
         let clock = *cx.global::<ClockFormat>();
         let (kind, phase) = block
-            .phase(now as i32)
+            .phase(now)
             .unwrap_or((SegmentKind::Work, block.start..block.end()));
         let length = (phase.end - phase.start).max(1) as f32;
 
@@ -326,7 +326,7 @@ impl NowCard {
         let now = cx.global::<Clock>().minute_of_day();
         let state = agenda.read(cx);
 
-        match state.running(now as i32) {
+        match state.running(now) {
             Some(block) => Self::Running(Running::new(
                 block,
                 state.task(block.task),
@@ -336,7 +336,7 @@ impl NowCard {
             )),
             None => Self::Idle(
                 state
-                    .upcoming(now as i32)
+                    .upcoming(now)
                     .map(|block| Upcoming::new(block, now, cx)),
             ),
         }
