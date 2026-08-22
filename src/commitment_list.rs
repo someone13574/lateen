@@ -342,9 +342,8 @@ impl CommitmentList {
                     .on_click(self.settle(task, start, Outcome::Done)),
             )
             .child(
-                Button::new(("pending-skip", index), "✕")
+                Button::new(("pending-skip", index), "✗")
                     .fixed(px(24.0), px(22.0))
-                    .glyph(px(10.0))
                     .verdict(Verdict::Deny)
                     .on_click(self.settle(task, start, Outcome::Skipped)),
             )

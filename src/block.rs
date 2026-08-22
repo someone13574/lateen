@@ -467,16 +467,14 @@ impl BlockView {
                 .child(
                     self.verdict_button(("block-done", self.index), "It happened", done, cx)
                         .text_size(px(10.0))
-                        .line_height(px(10.0))
                         .hover(|style| style.text_color(cx.theme().link_fg))
                         .child(Text::new_inaccessible("✓".into())),
                 )
                 .child(
                     self.verdict_button(("block-skip", self.index), "It did not happen", skip, cx)
-                        .text_size(px(9.0))
-                        .line_height(px(9.0))
+                        .text_size(px(10.0))
                         .hover(|style| style.text_color(cx.theme().danger_fg))
-                        .child(Text::new_inaccessible("✕".into())),
+                        .child(Text::new_inaccessible("✗".into())),
                 ),
         )
     }

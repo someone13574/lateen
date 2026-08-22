@@ -38,7 +38,6 @@ pub struct Button {
     chip: Option<(bool, Rgba)>,
     size: Option<Size<Pixels>>,
     padding: Option<Point<Pixels>>,
-    glyph: Option<Pixels>,
     verdict: Option<Verdict>,
     active: Option<(Rgba, Rgba)>,
     on_click: Option<Box<ClickHandler>>,
@@ -58,18 +57,12 @@ impl Button {
             chip: None,
             size: None,
             padding: None,
-            glyph: None,
             verdict: None,
             active: None,
             on_click: None,
             on_press: None,
             on_release: None,
         }
-    }
-
-    pub fn glyph(mut self, size: Pixels) -> Self {
-        self.glyph = Some(size);
-        self
     }
 
     pub fn verdict(mut self, verdict: Verdict) -> Self {
@@ -166,7 +159,7 @@ impl RenderOnce for Button {
                     .h(size.height)
                     .justify_center()
                     .rounded(px(4.0))
-                    .text_size(self.glyph.unwrap_or(px(11.0)))
+                    .text_size(px(11.0))
                     .text_color(cx.theme().chip_fg)
             })
             .when(self.bare, |button| {

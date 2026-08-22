@@ -628,9 +628,8 @@ impl Editor {
                     .on_click(self.settle(start, Outcome::Done)),
             )
             .child(
-                Button::new(("session-skip", start as usize), "✕")
+                Button::new(("session-skip", start as usize), "✗")
                     .fixed(px(22.0), px(20.0))
-                    .glyph(px(10.0))
                     .when(session.outcome == Outcome::Skipped, |button| {
                         button.active(theme.danger_fg, theme.card_bg)
                     })
