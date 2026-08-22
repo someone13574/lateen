@@ -51,17 +51,14 @@ impl Block {
         self
     }
 
-    pub fn logged(task: &Task, session: &Session) -> Self {
+    pub fn logged(task: &Task, session: &Session, segments: Vec<Segment>) -> Self {
         Self {
             task: task.id,
             title: task.title.clone(),
             place: task.place.clone(),
             color: task.color,
             start: session.start,
-            segments: vec![Segment {
-                kind: SegmentKind::Work,
-                minutes: (session.end - session.start).max(1),
-            }],
+            segments,
             outcome: Some(session.outcome),
             conflict: false,
         }

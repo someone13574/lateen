@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::Weekday;
+use chrono::{Datelike, NaiveDate, Weekday};
 use gpui::SharedString;
 
 use crate::block::Block;
@@ -38,6 +38,8 @@ pub struct Dates {
 }
 
 impl Dates {
+    const FURTHEST: i32 = i32::MAX / Block::MINUTES_PER_DAY - 1;
+
     pub fn covers(self, day: i32) -> bool {
         self.from.is_none_or(|from| day >= from) && self.until.is_none_or(|until| day <= until)
     }
@@ -47,9 +49,10 @@ impl Dates {
     }
 
     pub fn span(self) -> Range<i32> {
-        let first = self.first();
+        let first = self.first().clamp(-Self::FURTHEST, Self::FURTHEST);
+        let last = self.until.unwrap_or(first).clamp(first, Self::FURTHEST);
 
-        first..self.until.unwrap_or(first) + 1
+        first..last + 1
     }
 
     pub fn shift(&mut self, days: i32) {
@@ -103,9 +106,7 @@ impl Task {
             Self::flexible(
                 "Study, Calculus III",
                 weekdays(),
-                Flexible::new(90, 11 * 60 + 40, 22 * 60)
-                    .sessions(20, 30, 45)
-                    .breaks(25, 5),
+                Flexible::new(90, 11 * 60 + 40, 22 * 60).sessions(20, 30, 45),
             )
             .priority(Priority::Low)
             .transitions(5, 5),
@@ -119,9 +120,7 @@ impl Task {
             Self::flexible(
                 "Thesis draft, chapter 2",
                 weekdays(),
-                Flexible::new(300, 9 * 60, 18 * 60)
-                    .sessions(45, 90, 120)
-                    .breaks(50, 10),
+                Flexible::new(300, 9 * 60, 18 * 60).sessions(45, 90, 120),
             )
             .due(0, 4)
             .priority(Priority::Highest)
@@ -199,7 +198,7 @@ impl Task {
         self
     }
 
-    pub fn run(&self, day: i32) -> Range<i32> {
+    pub fn run(&self, day: i32, today: NaiveDate) -> Range<i32> {
         let TaskKind::Flexible(flexible) = &self.kind else {
             return day * Block::MINUTES_PER_DAY..(day + 1) * Block::MINUTES_PER_DAY;
         };
@@ -212,7 +211,7 @@ impl Task {
             }
             repeat => {
                 let cycle = repeat.cycle();
-                let opens = day.div_euclid(cycle) * cycle;
+                let opens = day - (today.num_days_from_ce() + day).rem_euclid(cycle);
 
                 opens * Block::MINUTES_PER_DAY..(opens + cycle) * Block::MINUTES_PER_DAY
             }
@@ -273,7 +272,6 @@ pub struct Flexible {
     pub repeat: Repeat,
     pub window: Range<i32>,
     pub sessions: Option<Sessions>,
-    pub breaks: Option<Breaks>,
 }
 
 impl Flexible {
@@ -283,7 +281,6 @@ impl Flexible {
             repeat: Repeat::Daily,
             window: opens..closes,
             sessions: None,
-            breaks: None,
         }
     }
 
@@ -293,11 +290,6 @@ impl Flexible {
             preferred,
             longest,
         });
-        self
-    }
-
-    pub fn breaks(mut self, every: i32, minutes: i32) -> Self {
-        self.breaks = Some(Breaks { every, minutes });
         self
     }
 }
@@ -336,12 +328,6 @@ pub struct Sessions {
     pub shortest: i32,
     pub preferred: i32,
     pub longest: i32,
-}
-
-#[derive(Clone, Copy)]
-pub struct Breaks {
-    pub every: i32,
-    pub minutes: i32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

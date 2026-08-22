@@ -15,7 +15,7 @@ use crate::input::{Input, InputEvent, InputState};
 use crate::select::{Select, SelectState};
 use crate::session::{Outcome, Session};
 use crate::task::{
-    Breaks, Dates, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
+    Dates, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
 };
 use crate::theme::ActiveTheme;
 
@@ -41,8 +41,6 @@ pub struct Editor {
     preferred: Entity<InputState>,
     shortest: Entity<InputState>,
     longest: Entity<InputState>,
-    break_every: Entity<InputState>,
-    break_minutes: Entity<InputState>,
     prep: Entity<InputState>,
     cleanup: Entity<InputState>,
     priority: Entity<SelectState>,
@@ -72,8 +70,6 @@ impl Editor {
             preferred: Self::field(Self::set_preferred, window, cx),
             shortest: Self::field(Self::set_shortest, window, cx),
             longest: Self::field(Self::set_longest, window, cx),
-            break_every: Self::field(Self::set_break_every, window, cx),
-            break_minutes: Self::field(Self::set_break_minutes, window, cx),
             prep: Self::field(Self::set_prep, window, cx),
             cleanup: Self::field(Self::set_cleanup, window, cx),
             priority: cx.new(|cx| SelectState::new(window, cx)),
@@ -158,17 +154,6 @@ impl Editor {
             (self.total.clone(), flexible.total.to_string()),
             (self.opens.clone(), clock.time_label(flexible.window.start)),
             (self.closes.clone(), clock.time_label(flexible.window.end)),
-            (
-                self.break_every.clone(),
-                flexible.breaks.map_or(0, |breaks| breaks.every).to_string(),
-            ),
-            (
-                self.break_minutes.clone(),
-                flexible
-                    .breaks
-                    .map_or(0, |breaks| breaks.minutes)
-                    .to_string(),
-            ),
         ];
 
         if let Some(sessions) = flexible.sessions {
@@ -392,22 +377,6 @@ impl Editor {
         }
     }
 
-    fn set_break_every(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(every)) = (Self::flexible(task), Self::amount(text)) {
-            let minutes = flexible.breaks.map_or(0, |breaks| breaks.minutes);
-
-            flexible.breaks = (every > 0).then_some(Breaks { every, minutes });
-        }
-    }
-
-    fn set_break_minutes(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), Self::amount(text)) {
-            let every = flexible.breaks.map_or(0, |breaks| breaks.every);
-
-            flexible.breaks = (every > 0).then_some(Breaks { every, minutes });
-        }
-    }
-
     fn amount(text: &str) -> Option<i32> {
         text.trim().parse().ok().filter(|minutes| *minutes >= 0)
     }
@@ -566,12 +535,15 @@ impl Editor {
     }
 
     fn run(task: &Task, ahead: &[Block], agenda: &Agenda, now: i32) -> Range<i32> {
-        let current = task.run(now.div_euclid(Block::MINUTES_PER_DAY));
+        let current = task.run(now.div_euclid(Block::MINUTES_PER_DAY), agenda.today());
         let started = !agenda.logged(task.id, &current).is_empty()
             || ahead.iter().any(|block| current.contains(&block.start));
 
         match ahead.first() {
-            Some(next) if !started => task.run(next.start.div_euclid(Block::MINUTES_PER_DAY)),
+            Some(next) if !started => task.run(
+                next.start.div_euclid(Block::MINUTES_PER_DAY),
+                agenda.today(),
+            ),
             _ => current,
         }
     }
@@ -910,36 +882,6 @@ impl Editor {
             .child(Self::labeled("Max", Input::new(self.longest.clone()), cx))
     }
 
-    fn breaks(&self, cx: &App) -> Div {
-        div()
-            .child(Self::heading("Breaks", cx))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(8.0))
-                    .child(Self::labeled(
-                        "Work for (min)",
-                        Input::new(self.break_every.clone()),
-                        cx,
-                    ))
-                    .child(Self::labeled(
-                        "Then rest (min)",
-                        Input::new(self.break_minutes.clone()),
-                        cx,
-                    )),
-            )
-            .child(
-                div()
-                    .mt(px(4.0))
-                    .text_size(px(10.5))
-                    .text_color(cx.theme().faint_fg)
-                    .child(Text::new(
-                        "breaks-note".into(),
-                        "Set work to 0 for no breaks.".into(),
-                    )),
-            )
-    }
-
     fn either_side(&self, cx: &App) -> Div {
         div().child(Self::heading("Time either side", cx)).child(
             div()
@@ -1276,7 +1218,6 @@ impl Render for Editor {
         .children((!fixed).then(|| self.allowed_hours(cx)))
         .children((!one_off).then(|| self.days(&days, cx)))
         .child(self.either_side(cx))
-        .children((!fixed).then(|| self.breaks(cx)))
         .children(
             (!fixed)
                 .then(|| self.sessions_list(splittable, cx))

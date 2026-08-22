@@ -67,6 +67,10 @@ impl Agenda {
         &self.tasks
     }
 
+    pub fn today(&self) -> NaiveDate {
+        self.planned_on
+    }
+
     pub fn unconfirmed(&self) -> Vec<&Session> {
         let mut pending: Vec<_> = self
             .log
@@ -101,7 +105,7 @@ impl Agenda {
             return None;
         }
 
-        let run = task.run(now.div_euclid(Block::MINUTES_PER_DAY));
+        let run = task.run(now.div_euclid(Block::MINUTES_PER_DAY), self.planned_on);
         let done: i32 = self
             .log
             .iter()
@@ -299,7 +303,7 @@ impl Agenda {
         let run = self
             .task(task)
             .unwrap()
-            .run(start.div_euclid(Block::MINUTES_PER_DAY));
+            .run(start.div_euclid(Block::MINUTES_PER_DAY), self.planned_on);
         let done: i32 = self
             .log
             .iter()

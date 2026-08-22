@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use chrono::{DateTime, Datelike, Local, Timelike};
+use chrono::{DateTime, Local, Timelike};
 use gpui::{Bounds, Pixels, point, px, size};
 
 use crate::block::{Block, BlockView};
@@ -26,15 +26,8 @@ impl Schedule {
         horizon: i32,
         now: DateTime<Local>,
     ) -> Self {
-        let mut blocks = Planner::plan(
-            tasks,
-            log,
-            pin,
-            horizon,
-            now.num_seconds_from_midnight() as i32 / 60,
-            now.weekday(),
-        );
-
+        let minute = now.num_seconds_from_midnight() as i32 / 60;
+        let mut blocks = Planner::plan(tasks, log, pin, horizon, minute, now.date_naive());
         let mut past = Self::past(tasks, log);
 
         Colorer::color(tasks, &mut blocks, &mut past);
@@ -74,9 +67,17 @@ impl Schedule {
     fn past(tasks: &[Task], log: &[Session]) -> Vec<Block> {
         log.iter()
             .filter_map(|session| {
-                let task = tasks.iter().find(|task| task.id == session.task)?;
+                let task = tasks
+                    .iter()
+                    .find(|task| task.id == session.task)
+                    .filter(|task| matches!(task.kind, TaskKind::Flexible(_)))?;
+                let span = (session.end - session.start).max(1);
 
-                matches!(task.kind, TaskKind::Flexible(_)).then(|| Block::logged(task, session))
+                Some(Block::logged(
+                    task,
+                    session,
+                    Planner::shape(task, session.work, span),
+                ))
             })
             .collect()
     }

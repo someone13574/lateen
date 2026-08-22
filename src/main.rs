@@ -148,9 +148,9 @@ fn main() {
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
                 panel: cx.new(|cx| Panel::new(agenda.clone(), import.clone(), window, cx)),
+                bottom_bar: cx.new(BottomBar::new),
                 agenda,
                 import,
-                bottom_bar: cx.new(BottomBar::new),
             })
         })
         .unwrap();
