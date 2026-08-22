@@ -226,7 +226,7 @@ impl BlockView {
     const OUTLINE_WIDTH: Pixels = px(2.0);
     const HATCH_PITCH: f32 = 4.0 * SQRT_2;
     const COMPACT_HEIGHT: Pixels = px(21.0);
-    const VERDICT_HEIGHT: Pixels = px(20.0);
+    const VERDICT_SIZE: Pixels = px(16.0);
     const CONFLICT_DIAMETER: Pixels = px(7.0);
     const META_HEIGHT: Pixels = px(30.0);
     const PLACE_HEIGHT: Pixels = px(44.0);
@@ -452,29 +452,42 @@ impl BlockView {
     fn verdict(&mut self, cx: &App) -> Option<Div> {
         let (done, skip) = (self.on_done.take()?, self.on_skip.take()?);
 
-        if !self.unconfirmed || self.bounds.size.height < Self::VERDICT_HEIGHT {
+        if !self.unconfirmed {
             return None;
         }
+
+        let button = (self.bounds.size.height * 0.8).min(Self::VERDICT_SIZE);
+        let inset = ((self.bounds.size.height - button) / 2.0).min(px(2.0));
 
         Some(
             div()
                 .absolute()
-                .top(px(2.0))
+                .top(inset)
                 .right(px(3.0))
                 .flex()
                 .items_start()
                 .gap(px(3.0))
                 .child(
-                    self.verdict_button(("block-done", self.index), "It happened", done, cx)
-                        .text_size(px(10.0))
-                        .hover(|style| style.text_color(cx.theme().link_fg))
-                        .child(Text::new_inaccessible("✓".into())),
+                    self.verdict_button(
+                        ("block-done", self.index),
+                        "It happened",
+                        button,
+                        done,
+                        cx,
+                    )
+                    .hover(|style| style.text_color(cx.theme().link_fg))
+                    .child(Text::new_inaccessible("✓".into())),
                 )
                 .child(
-                    self.verdict_button(("block-skip", self.index), "It did not happen", skip, cx)
-                        .text_size(px(10.0))
-                        .hover(|style| style.text_color(cx.theme().danger_fg))
-                        .child(Text::new_inaccessible("✗".into())),
+                    self.verdict_button(
+                        ("block-skip", self.index),
+                        "It did not happen",
+                        button,
+                        skip,
+                        cx,
+                    )
+                    .hover(|style| style.text_color(cx.theme().danger_fg))
+                    .child(Text::new_inaccessible("✗".into())),
                 ),
         )
     }
@@ -483,6 +496,7 @@ impl BlockView {
         &self,
         id: impl Into<ElementId>,
         label: &'static str,
+        size: Pixels,
         on_click: Box<ClickHandler>,
         cx: &App,
     ) -> Stateful<Div> {
@@ -492,7 +506,8 @@ impl BlockView {
             .aria_label(label)
             .flex()
             .flex_none()
-            .size(px(16.0))
+            .size(size)
+            .text_size(size * 0.625)
             .items_center()
             .justify_center()
             .text_color(cx.theme().dim_fg)
