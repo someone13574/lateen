@@ -23,7 +23,7 @@ impl Scrollbar {
     const INSET: Pixels = px(2.5);
     const MIN_LENGTH: Pixels = px(24.0);
     const START_MARGIN: Pixels = px(4.0);
-    const CORNER_MARGIN: Pixels = px(14.0);
+    const CORNER_MARGIN: Pixels = px(10.75);
 
     pub fn new(id: impl Into<ElementId>, axis: Axis, scroll: &ScrollHandle) -> Self {
         Self {
