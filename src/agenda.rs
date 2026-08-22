@@ -182,9 +182,9 @@ impl Agenda {
         }
     }
 
-    pub fn confirm_all(&mut self, cx: &mut Context<Self>) {
+    pub fn confirm_all(&mut self, days: Range<i32>, cx: &mut Context<Self>) {
         for session in &mut self.log {
-            if session.outcome == Outcome::Assumed {
+            if session.outcome == Outcome::Assumed && days.contains(&session.day()) {
                 session.outcome = Outcome::Done;
             }
         }

@@ -30,6 +30,10 @@ impl Session {
         }
     }
 
+    pub fn day(&self) -> i32 {
+        self.start.div_euclid(Block::MINUTES_PER_DAY)
+    }
+
     pub fn credited(&self) -> i32 {
         match self.outcome {
             Outcome::Skipped => 0,

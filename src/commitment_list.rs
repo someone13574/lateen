@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use chrono::{Days, Weekday};
 use gpui::prelude::*;
 use gpui::{
@@ -360,42 +362,74 @@ impl CommitmentList {
     fn session_label(session: &Session, cx: &App) -> String {
         let clock = cx.global::<ClockFormat>();
 
-        format!(
+        let times = format!(
             "{} to {}, {}",
             clock.time_label(session.start),
             clock.time_label(session.end),
             Self::duration_label(session.work)
-        )
+        );
+
+        match session.day() {
+            0 => times,
+            day => format!("{}, {times}", Self::past_day_label(day, cx)),
+        }
     }
 
-    fn pending(&self, cx: &App) -> Option<Div> {
-        let state = self.agenda.read(cx);
-        let sessions = state.unconfirmed();
-        if sessions.is_empty() {
-            return None;
+    fn past_day_label(day: i32, cx: &App) -> String {
+        if day == -1 {
+            return "Yesterday".to_string();
         }
 
-        let agenda = self.agenda.clone();
-        let confirm_all =
-            Button::text("confirm-all", "Confirm all").on_click(Box::new(move |_window, cx| {
-                agenda.update(cx, Agenda::confirm_all)
-            }));
+        let date = cx.global::<Clock>().now().date_naive() - Days::new(day.unsigned_abs() as u64);
 
-        Some(
-            div()
-                .mb(px(14.0))
-                .child(Self::heading(
-                    "Did these happen?",
-                    Some(div().flex_none().child(confirm_all)),
-                    cx,
-                ))
-                .children(
-                    sessions
-                        .iter()
-                        .enumerate()
-                        .map(|(index, session)| self.pending_row(index, session, cx)),
-                ),
-        )
+        date.format("%a %-d").to_string()
+    }
+
+    fn pending(&self, cx: &App) -> Vec<Div> {
+        let state = self.agenda.read(cx);
+        let (earlier, today): (Vec<_>, Vec<_>) = state
+            .unconfirmed()
+            .into_iter()
+            .enumerate()
+            .partition(|(_, session)| session.day() < 0);
+
+        [
+            ("Today", today, 0..i32::MAX),
+            ("Earlier", earlier, i32::MIN..0),
+        ]
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (_, rows, _))| !rows.is_empty())
+        .map(|(index, (label, rows, days))| self.pending_group(index, label, &rows, days, cx))
+        .collect()
+    }
+
+    fn pending_group(
+        &self,
+        index: usize,
+        label: &'static str,
+        rows: &[(usize, &Session)],
+        days: Range<i32>,
+        cx: &App,
+    ) -> Div {
+        let agenda = self.agenda.clone();
+        let confirm_all = Button::text(("confirm-all", index), "Confirm all").on_click(Box::new(
+            move |_window, cx| {
+                agenda.update(cx, |agenda, cx| agenda.confirm_all(days.clone(), cx));
+            },
+        ));
+
+        div()
+            .mb(px(14.0))
+            .child(Self::heading(
+                label,
+                Some(div().flex_none().child(confirm_all)),
+                cx,
+            ))
+            .children(
+                rows.iter()
+                    .map(|(index, session)| self.pending_row(*index, session, cx)),
+            )
     }
 
     fn group(&self, label: &'static str, fixed: bool, now: i32, cx: &App) -> Div {
