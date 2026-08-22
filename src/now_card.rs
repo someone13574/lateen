@@ -42,6 +42,7 @@ impl Running {
             .phase(now)
             .unwrap_or((SegmentKind::Work, block.start..block.end()));
         let length = (phase.end - phase.start).max(1) as f32;
+        let next = block.phase(phase.end as f32).map(|(kind, _)| kind);
 
         Self {
             agenda,
@@ -50,7 +51,7 @@ impl Running {
             title: block.title.clone(),
             range: Self::range(block, clock),
             countdown: Self::countdown(phase.end as f32 - now),
-            phase: Self::phase_label(kind),
+            phase: Self::phase_label(kind, next),
             elapsed: ((now - phase.start as f32) / length).clamp(0.0, 1.0),
             color: block.color,
             working: kind == SegmentKind::Work,
@@ -59,9 +60,10 @@ impl Running {
         }
     }
 
-    fn phase_label(kind: SegmentKind) -> &'static str {
+    fn phase_label(kind: SegmentKind, next: Option<SegmentKind>) -> &'static str {
         match kind {
             SegmentKind::Prep => "until it starts",
+            SegmentKind::Work if next == Some(SegmentKind::Pause) => "until break",
             SegmentKind::Work => "left",
             SegmentKind::Pause => "of break",
             SegmentKind::Cleanup => "wrapping up",
@@ -135,7 +137,7 @@ impl Running {
             )
             .when(self.splittable, |actions| {
                 actions.child(
-                    Button::new("finish", "All of it")
+                    Button::new("finish", "End full task")
                         .stretch()
                         .padding(px(5.0), px(5.0))
                         .on_click(self.dispatch(Agenda::finish)),
@@ -167,7 +169,7 @@ impl Running {
 
         div()
             .flex()
-            .items_baseline()
+            .items_start()
             .gap(px(10.0))
             .child(
                 div()
