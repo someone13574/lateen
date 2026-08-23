@@ -770,13 +770,13 @@ impl Editor {
             .mb(px(6.0))
             .child(
                 div()
-                    .flex_none()
+                    .flex_1()
+                    .min_w_0()
                     .text_size(px(11.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.dim_fg)
+                    .text_color(theme.heading_fg)
                     .child(Text::new(label.into(), label.into())),
             )
-            .child(div().flex_1().h(px(1.0)).bg(theme.rule))
             .children(progress.map(|progress| {
                 div()
                     .flex_none()

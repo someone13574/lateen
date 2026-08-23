@@ -22,6 +22,8 @@ pub struct CommitmentList {
 }
 
 impl CommitmentList {
+    const EMPTY_BODY: &str = "Add a fixed event, or a flexible one to be scheduled around it.";
+
     pub fn new(agenda: Entity<Agenda>, import: Entity<Import>) -> Self {
         Self { agenda, import }
     }
@@ -270,13 +272,13 @@ impl CommitmentList {
             .pb(px(6.0))
             .child(
                 div()
-                    .flex_none()
+                    .flex_1()
+                    .min_w_0()
                     .text_size(px(11.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme.dim_fg)
+                    .text_color(theme.heading_fg)
                     .child(Text::new(label.into(), label.into())),
             )
-            .child(div().flex_1().h(px(1.0)).bg(theme.rule))
             .children(trailing)
     }
 
@@ -458,6 +460,91 @@ impl CommitmentList {
                     .map(|(index, task)| self.row(*index, task, now, cx)),
             )
     }
+
+    fn body(&self, now: i32, cx: &App) -> Vec<Div> {
+        if self.agenda.read(cx).tasks().is_empty() {
+            return vec![self.empty(cx)];
+        }
+
+        vec![
+            self.group("Fixed", true, now, cx),
+            self.group("Flexible", false, now, cx),
+        ]
+    }
+
+    fn empty(&self, cx: &App) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(13.0))
+            .pt(px(44.0))
+            .px(px(10.0))
+            .text_center()
+            .child(Self::empty_copy(cx))
+            .child(self.empty_actions())
+    }
+
+    fn empty_copy(cx: &App) -> Div {
+        let theme = *cx.theme();
+
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(5.0))
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.heading_fg)
+                    .child(Text::new("empty-title".into(), "No commitments yet".into())),
+            )
+            .child(
+                div()
+                    .max_w(px(232.0))
+                    .text_size(px(11.5))
+                    .text_color(theme.dim_fg)
+                    .child(Text::new("empty-body".into(), Self::EMPTY_BODY.into())),
+            )
+    }
+
+    fn empty_actions(&self) -> Div {
+        div()
+            .flex()
+            .gap(px(7.0))
+            .child(
+                Button::new("empty-new", "New commitment")
+                    .filled()
+                    .padding(px(12.0), px(5.0))
+                    .on_click(self.add()),
+            )
+            .child(
+                Button::new("empty-import", "Import calendar")
+                    .padding(px(12.0), px(5.0))
+                    .on_click(self.open_import()),
+            )
+    }
+
+    fn add(&self) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+        let import = self.import.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, |agenda, cx| agenda.add(cx));
+            import.update(cx, |import, cx| import.close(cx));
+        })
+    }
+
+    fn open_import(&self) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+        let import = self.import.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, Agenda::deselect);
+            import.update(cx, |import, cx| import.toggle(cx));
+        })
+    }
 }
 
 impl RenderOnce for CommitmentList {
@@ -474,7 +561,6 @@ impl RenderOnce for CommitmentList {
             .pb(px(16.0))
             .child(self.import.clone())
             .children(self.pending(cx))
-            .child(self.group("Fixed", true, now, cx))
-            .child(self.group("Flexible", false, now, cx))
+            .children(self.body(now, cx))
     }
 }
