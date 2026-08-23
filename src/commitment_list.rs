@@ -434,7 +434,7 @@ impl CommitmentList {
             )
     }
 
-    fn group(&self, label: &'static str, fixed: bool, now: i32, cx: &App) -> Div {
+    fn group(&self, label: &'static str, fixed: bool, now: i32, cx: &App) -> Option<Div> {
         let state = self.agenda.read(cx);
         let members: Vec<_> = state
             .tasks()
@@ -442,6 +442,10 @@ impl CommitmentList {
             .enumerate()
             .filter(|(_, task)| matches!(task.kind, TaskKind::Fixed { .. }) == fixed)
             .collect();
+        if members.is_empty() {
+            return None;
+        }
+
         let count = div()
             .flex_none()
             .text_size(px(10.5))
@@ -451,14 +455,16 @@ impl CommitmentList {
                 members.len().to_string().into(),
             ));
 
-        div()
-            .mb(px(14.0))
-            .child(Self::heading(label, Some(count), cx))
-            .children(
-                members
-                    .iter()
-                    .map(|(index, task)| self.row(*index, task, now, cx)),
-            )
+        Some(
+            div()
+                .mb(px(14.0))
+                .child(Self::heading(label, Some(count), cx))
+                .children(
+                    members
+                        .iter()
+                        .map(|(index, task)| self.row(*index, task, now, cx)),
+                ),
+        )
     }
 
     fn body(&self, now: i32, cx: &App) -> Vec<Div> {
@@ -466,10 +472,13 @@ impl CommitmentList {
             return vec![self.empty(cx)];
         }
 
-        vec![
+        [
             self.group("Fixed", true, now, cx),
             self.group("Flexible", false, now, cx),
         ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     fn empty(&self, cx: &App) -> Div {
