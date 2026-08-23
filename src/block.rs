@@ -227,6 +227,7 @@ impl BlockView {
     const HATCH_PITCH: f32 = 4.0 * SQRT_2;
     const COMPACT_HEIGHT: Pixels = px(21.0);
     const VERDICT_SIZE: Pixels = px(16.0);
+    const VERDICT_GAP: Pixels = px(3.0);
     const CONFLICT_DIAMETER: Pixels = px(7.0);
     const META_HEIGHT: Pixels = px(30.0);
     const PLACE_HEIGHT: Pixels = px(44.0);
@@ -466,7 +467,7 @@ impl BlockView {
                 .right(px(3.0))
                 .flex()
                 .items_start()
-                .gap(px(3.0))
+                .gap(Self::VERDICT_GAP)
                 .child(
                     self.verdict_button(
                         ("block-done", self.index),
@@ -506,7 +507,8 @@ impl BlockView {
             .aria_label(label)
             .flex()
             .flex_none()
-            .size(size)
+            .w(Self::VERDICT_SIZE)
+            .h(size)
             .text_size(size * 0.625)
             .items_center()
             .justify_center()
