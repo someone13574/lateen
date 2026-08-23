@@ -57,30 +57,6 @@ impl ClockFormat {
         }
     }
 
-    pub fn parse(text: &str) -> Option<i32> {
-        let text = text.trim().to_lowercase();
-        let (clock, midday) = match text.strip_suffix("am") {
-            Some(clock) => (clock, Some(0)),
-            None => match text.strip_suffix("pm") {
-                Some(clock) => (clock, Some(12)),
-                None => (text.as_str(), None),
-            },
-        };
-        let (hour, minute) = match clock.trim().split_once(':') {
-            Some((hour, minute)) => (
-                hour.trim().parse::<i32>().ok()?,
-                minute.trim().parse::<i32>().ok()?,
-            ),
-            None => (clock.trim().parse::<i32>().ok()?, 0),
-        };
-        let hour = match midday {
-            Some(offset) => hour % 12 + offset,
-            None => hour,
-        };
-
-        ((0..24).contains(&hour) && (0..60).contains(&minute)).then_some(hour * 60 + minute)
-    }
-
     pub fn second_label(self, time: NaiveTime) -> String {
         let (hour, minute, second) = (time.hour(), time.minute(), time.second());
 

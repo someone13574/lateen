@@ -11,7 +11,7 @@ use crate::agenda::Agenda;
 use crate::block::Block;
 use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
-use crate::input::{Input, InputEvent, InputState};
+use crate::input::{Entry, Input, InputEvent, InputState};
 use crate::select::{Select, SelectState};
 use crate::session::{Outcome, Session};
 use crate::task::{
@@ -59,19 +59,19 @@ impl Editor {
         let editor = Self {
             agenda,
             task,
-            title: Self::field(Self::set_title, window, cx),
-            start: Self::field(Self::set_start, window, cx),
-            duration: Self::field(Self::set_duration, window, cx),
-            place: Self::field(Self::set_place, window, cx),
-            overrun: Self::field(Self::set_overrun, window, cx),
-            total: Self::field(Self::set_total, window, cx),
-            opens: Self::field(Self::set_opens, window, cx),
-            closes: Self::field(Self::set_closes, window, cx),
-            preferred: Self::field(Self::set_preferred, window, cx),
-            shortest: Self::field(Self::set_shortest, window, cx),
-            longest: Self::field(Self::set_longest, window, cx),
-            prep: Self::field(Self::set_prep, window, cx),
-            cleanup: Self::field(Self::set_cleanup, window, cx),
+            title: Self::text_field(Self::set_title, window, cx),
+            start: Self::field(Entry::Time, 0, Self::set_start, window, cx),
+            duration: Self::field(Entry::Duration, 1, Self::set_duration, window, cx),
+            place: Self::text_field(Self::set_place, window, cx),
+            overrun: Self::field(Entry::Number, 0, Self::set_overrun, window, cx),
+            total: Self::field(Entry::Duration, 1, Self::set_total, window, cx),
+            opens: Self::field(Entry::Time, 0, Self::set_opens, window, cx),
+            closes: Self::field(Entry::Time, 0, Self::set_closes, window, cx),
+            preferred: Self::field(Entry::Duration, 1, Self::set_preferred, window, cx),
+            shortest: Self::field(Entry::Duration, 1, Self::set_shortest, window, cx),
+            longest: Self::field(Entry::Duration, 1, Self::set_longest, window, cx),
+            prep: Self::field(Entry::Duration, 0, Self::set_prep, window, cx),
+            cleanup: Self::field(Entry::Duration, 0, Self::set_cleanup, window, cx),
             priority: cx.new(|cx| SelectState::new(window, cx)),
             repeat: cx.new(|cx| SelectState::new(window, cx)),
             earliest: cx.new(|cx| SelectState::new(window, cx)),
@@ -88,13 +88,49 @@ impl Editor {
     }
 
     fn field(
+        entry: Entry,
+        minimum: i32,
+        apply: fn(&mut Task, i32),
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        let state = cx.new(|cx| InputState::new(entry, window, cx));
+
+        cx.subscribe(&state, move |editor, state, event: &InputEvent, cx| {
+            let value = entry
+                .parse(state.read(cx).content())
+                .filter(|value| *value >= minimum);
+            let task = editor.task;
+
+            if let Some(value) = value {
+                editor.agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| apply(task, value), cx)
+                });
+            }
+
+            state.update(cx, |state, cx| state.set_invalid(value.is_none(), cx));
+
+            if matches!(event, InputEvent::Committed) && value.is_some() {
+                editor.commit(&state, cx);
+            }
+        })
+        .detach();
+
+        state
+    }
+
+    fn text_field(
         apply: fn(&mut Task, &str),
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        let state = cx.new(|cx| InputState::new(window, cx));
+        let state = cx.new(|cx| InputState::new(Entry::Text, window, cx));
 
-        cx.subscribe(&state, move |editor, state, _event: &InputEvent, cx| {
+        cx.subscribe(&state, move |editor, state, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Committed) {
+                return;
+            }
+
             let text = state.read(cx).content().clone();
             let task = editor.task;
 
@@ -105,6 +141,18 @@ impl Editor {
         .detach();
 
         state
+    }
+
+    fn commit(&self, state: &Entity<InputState>, cx: &mut Context<Self>) {
+        let Some((_, value)) = self
+            .values(cx)
+            .into_iter()
+            .find(|(field, _)| field == state)
+        else {
+            return;
+        };
+
+        state.update(cx, |state, cx| state.set_content(value, cx));
     }
 
     fn reseed(&self, cx: &mut Context<Self>) {
@@ -305,80 +353,69 @@ impl Editor {
         task.place = (!text.trim().is_empty()).then(|| text.to_string().into());
     }
 
-    fn set_prep(task: &mut Task, text: &str) {
-        task.prep = Self::amount(text).unwrap_or(task.prep);
+    fn set_prep(task: &mut Task, minutes: i32) {
+        task.prep = minutes;
     }
 
-    fn set_cleanup(task: &mut Task, text: &str) {
-        task.cleanup = Self::amount(text).unwrap_or(task.cleanup);
+    fn set_cleanup(task: &mut Task, minutes: i32) {
+        task.cleanup = minutes;
     }
 
-    fn set_start(task: &mut Task, text: &str) {
-        if let (TaskKind::Fixed { start, .. }, Some(minutes)) =
-            (&mut task.kind, ClockFormat::parse(text))
-        {
+    fn set_start(task: &mut Task, minutes: i32) {
+        if let TaskKind::Fixed { start, .. } = &mut task.kind {
             *start = minutes;
         }
     }
 
-    fn set_duration(task: &mut Task, text: &str) {
-        if let (TaskKind::Fixed { duration, .. }, Some(minutes)) =
-            (&mut task.kind, Self::amount(text))
-        {
-            *duration = minutes.max(1);
+    fn set_duration(task: &mut Task, minutes: i32) {
+        if let TaskKind::Fixed { duration, .. } = &mut task.kind {
+            *duration = minutes;
         }
     }
 
-    fn set_overrun(task: &mut Task, text: &str) {
-        if let (
-            TaskKind::Fixed {
-                overrun_percent, ..
-            },
-            Some(percent),
-        ) = (&mut task.kind, Self::amount(text))
+    fn set_overrun(task: &mut Task, percent: i32) {
+        if let TaskKind::Fixed {
+            overrun_percent, ..
+        } = &mut task.kind
         {
             *overrun_percent = percent;
         }
     }
 
-    fn set_total(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), Self::amount(text)) {
-            flexible.total = minutes.max(1);
+    fn set_total(task: &mut Task, minutes: i32) {
+        if let Some(flexible) = Self::flexible(task) {
+            flexible.total = minutes;
         }
     }
 
-    fn set_opens(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), ClockFormat::parse(text)) {
+    fn set_opens(task: &mut Task, minutes: i32) {
+        if let Some(flexible) = Self::flexible(task) {
             flexible.window.start = minutes;
         }
     }
 
-    fn set_closes(task: &mut Task, text: &str) {
-        if let (Some(flexible), Some(minutes)) = (Self::flexible(task), ClockFormat::parse(text)) {
+    fn set_closes(task: &mut Task, minutes: i32) {
+        if let Some(flexible) = Self::flexible(task) {
             flexible.window.end = minutes;
         }
     }
 
-    fn set_preferred(task: &mut Task, text: &str) {
-        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::amount(text)) {
-            sessions.preferred = minutes.max(1);
+    fn set_preferred(task: &mut Task, minutes: i32) {
+        if let Some(sessions) = Self::sessions(task) {
+            sessions.preferred = minutes;
         }
     }
 
-    fn set_shortest(task: &mut Task, text: &str) {
-        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::amount(text)) {
-            sessions.shortest = minutes.max(1);
+    fn set_shortest(task: &mut Task, minutes: i32) {
+        if let Some(sessions) = Self::sessions(task) {
+            sessions.shortest = minutes;
         }
     }
 
-    fn set_longest(task: &mut Task, text: &str) {
-        if let (Some(sessions), Some(minutes)) = (Self::sessions(task), Self::amount(text)) {
-            sessions.longest = minutes.max(1);
+    fn set_longest(task: &mut Task, minutes: i32) {
+        if let Some(sessions) = Self::sessions(task) {
+            sessions.longest = minutes;
         }
-    }
-
-    fn amount(text: &str) -> Option<i32> {
-        text.trim().parse().ok().filter(|minutes| *minutes >= 0)
     }
 
     fn flexible(task: &mut Task) -> Option<&mut Flexible> {

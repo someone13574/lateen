@@ -10,8 +10,8 @@ use gpui::{
 };
 
 use crate::input::{
-    Backspace, Copy, Cut, Delete, End, FocusNext, FocusPrevious, Home, InputState, Left, Paste,
-    Redo, Right, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, Undo,
+    Backspace, Copy, Cut, Delete, End, Enter, FocusNext, FocusPrevious, Home, InputState, Left,
+    Paste, Redo, Right, SelectAll, SelectEnd, SelectHome, SelectLeft, SelectRight, Undo,
 };
 use crate::theme::ActiveTheme;
 
@@ -68,6 +68,7 @@ impl RenderOnce for Input {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let focus_handle = self.state.read(cx).focus_handle.clone();
         let focused = focus_handle.is_focused(window);
+        let invalid = self.state.read(cx).invalid;
 
         div()
             .key_context(InputState::KEY_CONTEXT)
@@ -80,10 +81,10 @@ impl RenderOnce for Input {
             .border(px(1.0))
             .rounded(px(4.0))
             .bg(cx.theme().input_bg)
-            .border_color(if focused {
-                cx.theme().input_focus_border
-            } else {
-                cx.theme().input_border
+            .border_color(match (invalid, focused) {
+                (true, _) => cx.theme().danger_fg,
+                (false, true) => cx.theme().input_focus_border,
+                (false, false) => cx.theme().input_border,
             })
             .text_size(self.text_size)
             .text_color(cx.theme().fg)
@@ -102,6 +103,7 @@ impl RenderOnce for Input {
             .on_action(self.action::<Copy>(InputState::copy))
             .on_action(self.action::<Cut>(InputState::cut))
             .on_action(self.action::<Paste>(InputState::paste))
+            .on_action(self.action::<Enter>(InputState::enter))
             .on_action(self.action::<FocusNext>(InputState::focus_next))
             .on_action(self.action::<FocusPrevious>(InputState::focus_previous))
             .on_action(self.action::<Undo>(InputState::undo))
@@ -122,14 +124,18 @@ impl RenderOnce for Input {
                 state: self.state,
                 placeholder: self.placeholder,
             })
-            .when(focused, |input| {
+            .when(focused || invalid, |input| {
                 input.child(
                     div()
                         .absolute()
                         .inset(px(1.0))
                         .border(px(2.0))
                         .rounded(px(3.0))
-                        .border_color(cx.theme().input_ring),
+                        .border_color(if invalid {
+                            cx.theme().danger_border
+                        } else {
+                            cx.theme().input_ring
+                        }),
                 )
             })
     }

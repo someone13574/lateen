@@ -8,8 +8,10 @@ use gpui::{
 use unicode_segmentation::UnicodeSegmentation;
 
 pub use element::Input;
+pub use entry::Entry;
 
 mod element;
+mod entry;
 
 actions!(
     input,
@@ -19,6 +21,7 @@ actions!(
         Cut,
         Delete,
         End,
+        Enter,
         FocusNext,
         FocusPrevious,
         Home,
@@ -37,10 +40,13 @@ actions!(
 
 pub enum InputEvent {
     Changed,
+    Committed,
 }
 
 pub struct InputState {
     focus_handle: FocusHandle,
+    entry: Entry,
+    invalid: bool,
     content: SharedString,
     selected_range: Range<usize>,
     selection_reversed: bool,
@@ -75,19 +81,22 @@ struct Revision {
 impl InputState {
     pub const KEY_CONTEXT: &'static str = "Input";
 
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(entry: Entry, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle().tab_stop(true);
 
         cx.on_blur(&focus_handle, window, |_state, window, cx| {
             cx.defer_in(window, |state, _window, cx| {
                 state.drag = None;
                 state.move_to(state.cursor_offset(), cx);
+                cx.emit(InputEvent::Committed);
             });
         })
         .detach();
 
         Self {
             focus_handle,
+            entry,
+            invalid: false,
             content: SharedString::default(),
             selected_range: 0..0,
             selection_reversed: false,
@@ -125,6 +134,7 @@ impl InputState {
             KeyBinding::new("ctrl-z", Undo, Some(Self::KEY_CONTEXT)),
             KeyBinding::new("ctrl-shift-z", Redo, Some(Self::KEY_CONTEXT)),
             KeyBinding::new("ctrl-y", Redo, Some(Self::KEY_CONTEXT)),
+            KeyBinding::new("enter", Enter, Some(Self::KEY_CONTEXT)),
             KeyBinding::new("tab", FocusNext, Some(Self::KEY_CONTEXT)),
             KeyBinding::new("shift-tab", FocusPrevious, Some(Self::KEY_CONTEXT)),
         ]);
@@ -140,8 +150,20 @@ impl InputState {
         self.selection_reversed = false;
         self.marked_range = None;
         self.edit_run = None;
+        self.invalid = false;
 
         cx.notify();
+    }
+
+    pub fn set_invalid(&mut self, invalid: bool, cx: &mut Context<Self>) {
+        self.invalid = invalid;
+
+        cx.notify();
+    }
+
+    fn enter(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.content.len(), cx);
+        cx.emit(InputEvent::Committed);
     }
 
     fn left(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -371,6 +393,10 @@ impl InputState {
     }
 
     fn replace(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
+        if !self.permitted(&range, text) {
+            return;
+        }
+
         let cursor = range.start + text.len();
 
         self.record(&range, text);
@@ -380,6 +406,16 @@ impl InputState {
 
         cx.emit(InputEvent::Changed);
         cx.notify();
+    }
+
+    fn permitted(&self, range: &Range<usize>, text: &str) -> bool {
+        if text.is_empty() {
+            return true;
+        }
+
+        let candidate = self.content[..range.start].to_owned() + text + &self.content[range.end..];
+
+        self.entry.permits(&self.content, &candidate)
     }
 
     fn revision(&self) -> Revision {
@@ -584,6 +620,11 @@ impl EntityInputHandler for InputState {
         cx: &mut Context<Self>,
     ) {
         let range = self.pending_range(range_utf16);
+
+        if !self.permitted(&range, new_text) {
+            return;
+        }
+
         let marked = range.start..range.start + new_text.len();
 
         self.record(&range, new_text);
