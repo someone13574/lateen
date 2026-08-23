@@ -5,6 +5,7 @@ use crate::agenda::Agenda;
 use crate::block::{Block, SegmentKind};
 use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
+use crate::selectable_text::SelectableText;
 use crate::task::{Task, TaskId, TaskKind};
 use crate::theme::{ActiveTheme, BlockColor};
 
@@ -181,7 +182,7 @@ impl Running {
                             .text_size(px(15.0))
                             .line_height(px(18.0))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(Text::new("now-title".into(), self.title.clone())),
+                            .child(SelectableText::new("now-title", self.title.clone())),
                     )
                     .child(
                         div()
@@ -189,7 +190,7 @@ impl Running {
                             .truncate()
                             .text_size(px(11.5))
                             .text_color(theme.muted_fg)
-                            .child(Text::new("now-range".into(), self.range.clone().into())),
+                            .child(SelectableText::new("now-range", self.range.clone())),
                     ),
             )
             .child(self.timer(phase_fg, cx))
@@ -208,10 +209,7 @@ impl Running {
                     .letter_spacing(px(-0.42))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(phase_fg)
-                    .child(Text::new(
-                        "now-countdown".into(),
-                        self.countdown.clone().into(),
-                    )),
+                    .child(SelectableText::new("now-countdown", self.countdown.clone())),
             )
             .child(
                 div()
@@ -271,7 +269,7 @@ impl Upcoming {
                             .text_size(px(15.0))
                             .line_height(px(18.0))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(Text::new("next-title".into(), self.title.clone())),
+                            .child(SelectableText::new("next-title", self.title.clone())),
                     )
                     .child(
                         div()
@@ -279,7 +277,7 @@ impl Upcoming {
                             .truncate()
                             .text_size(px(11.5))
                             .text_color(theme.muted_fg)
-                            .child(Text::new("next-when".into(), self.when.clone().into())),
+                            .child(SelectableText::new("next-when", self.when.clone())),
                     ),
             )
             .child(self.timer(cx))
@@ -300,9 +298,9 @@ impl Upcoming {
                     .letter_spacing(px(-0.42))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.body_fg)
-                    .child(Text::new(
-                        "next-countdown".into(),
-                        self.countdown.clone().into(),
+                    .child(SelectableText::new(
+                        "next-countdown",
+                        self.countdown.clone(),
                     )),
             )
             .child(

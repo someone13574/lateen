@@ -13,6 +13,7 @@ use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
 use crate::input::{Entry, Input, InputEvent, InputState};
 use crate::select::{Select, SelectState};
+use crate::selectable_text::SelectableText;
 use crate::session::{Outcome, Session};
 use crate::task::{
     Dates, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
@@ -590,9 +591,9 @@ impl Editor {
             .flex_none()
             .text_size(px(10.5))
             .text_color(cx.theme().dim_fg)
-            .child(Text::new(
-                ("session-length", id).into(),
-                Self::duration_label(minutes).into(),
+            .child(SelectableText::new(
+                ("session-length", id),
+                Self::duration_label(minutes),
             ))
     }
 
@@ -779,7 +780,7 @@ impl Editor {
                 div()
                     .text_size(px(11.5))
                     .text_color(fg)
-                    .child(Text::new(("session-range", id).into(), range.into())),
+                    .child(SelectableText::new(("session-range", id), range)),
             )
             .child(
                 div()

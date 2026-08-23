@@ -15,6 +15,7 @@ use crate::input::InputState;
 use crate::notifier::Notifier;
 use crate::panel::Panel;
 use crate::select::SelectState;
+use crate::selectable_text::TextSelection;
 use crate::theme::{ActiveTheme, Theme};
 use crate::titlebar::Titlebar;
 use crate::window::WindowFrame;
@@ -41,6 +42,7 @@ mod planner;
 mod schedule;
 mod scrollbar;
 mod select;
+mod selectable_text;
 mod session;
 mod store;
 mod task;
@@ -121,6 +123,7 @@ fn main() {
         ClockFormat::init(cx);
         InputState::init(cx);
         SelectState::init(cx);
+        TextSelection::init(cx);
 
         let decorations = match gpui::guess_compositor() {
             "X11" => WindowDecorations::Server,

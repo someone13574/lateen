@@ -15,6 +15,7 @@ use crate::cursor::Cursor;
 use crate::day_columns::DayColumns;
 use crate::grid::Grid;
 use crate::scrollbar::Scrollbar;
+use crate::selectable_text::SelectableText;
 use crate::theme::ActiveTheme;
 
 pub struct Calendar {
@@ -214,9 +215,9 @@ impl Calendar {
                                 FontWeight::SEMIBOLD
                             })
                             .text_color(fg)
-                            .child(Text::new(
-                                ("date", day).into(),
-                                Self::date_label(day, date).into(),
+                            .child(SelectableText::new(
+                                ("date", day),
+                                Self::date_label(day, date),
                             )),
                     ),
             )
