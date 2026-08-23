@@ -1,16 +1,18 @@
 use std::ops::Range;
 
+use serde::{Deserialize, Serialize};
+
 use crate::block::Block;
 use crate::task::TaskId;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outcome {
     Assumed,
     Done,
     Skipped,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Session {
     pub task: TaskId,
     pub start: i32,

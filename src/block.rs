@@ -7,13 +7,15 @@ use gpui::{
     Text, Window, div, pattern_slash, px, rgb,
 };
 
+use serde::{Deserialize, Serialize};
+
 use crate::button::ClickHandler;
 use crate::clock::ClockFormat;
 use crate::session::{Outcome, Session};
 use crate::task::{Task, TaskId};
 use crate::theme::{ActiveTheme, BlockColor, BlockColors};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Block {
     pub task: TaskId,
     pub title: SharedString,
@@ -133,13 +135,13 @@ impl Block {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Segment {
     pub kind: SegmentKind,
     pub minutes: i32,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SegmentKind {
     Prep,
     Work,

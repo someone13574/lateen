@@ -11,6 +11,7 @@ use crate::clock::Clock;
 use crate::notifier::Notifier;
 use crate::schedule::Schedule;
 use crate::session::{Outcome, Session};
+use crate::store::StoredAgenda;
 use crate::task::{Repeat, Task, TaskId, TaskKind};
 
 pub struct Agenda {
@@ -29,19 +30,11 @@ impl Agenda {
     const SAMPLE: Duration = Duration::from_secs(1);
 
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let mut tasks = Task::seed();
-        let log = Vec::new();
-        let now = cx.global::<Clock>().now();
         Self::follow_clock(cx);
 
-        Self {
-            schedule: Schedule::plan(&mut tasks, &log, None, Self::HORIZON, now),
-            planned_at: Self::minute(now),
-            planned_on: now.date_naive(),
-            pin: None,
-            tasks,
-            log,
-            selected: None,
+        match StoredAgenda::load() {
+            Some(stored) => Self::restored(stored, cx),
+            None => Self::seeded(cx),
         }
     }
 
@@ -145,13 +138,7 @@ impl Agenda {
             return false;
         }
 
-        self.roll(now.date_naive());
-
-        let minute = Self::minute_of_day(now);
-        self.sweep(minute);
-        self.settle(minute);
-        self.hold(minute);
-        self.plan(now);
+        self.advance(now, cx);
 
         true
     }
@@ -164,7 +151,7 @@ impl Agenda {
 
         if let Some(session) = session {
             session.outcome = outcome;
-            self.plan(cx.global::<Clock>().now());
+            self.plan(cx.global::<Clock>().now(), cx);
             cx.notify();
         }
     }
@@ -189,7 +176,7 @@ impl Agenda {
             }
         }
 
-        self.plan(cx.global::<Clock>().now());
+        self.plan(cx.global::<Clock>().now(), cx);
         cx.notify();
     }
 
@@ -238,7 +225,7 @@ impl Agenda {
             self.pin = None;
         }
 
-        self.plan(cx.global::<Clock>().now());
+        self.plan(cx.global::<Clock>().now(), cx);
         cx.notify();
     }
 
@@ -247,7 +234,7 @@ impl Agenda {
 
         self.selected = Some(task.id);
         self.tasks.push(task);
-        self.plan(cx.global::<Clock>().now());
+        self.plan(cx.global::<Clock>().now(), cx);
         cx.notify();
     }
 
@@ -259,8 +246,88 @@ impl Agenda {
         self.tasks.retain(|other| other.id != task);
         self.log.retain(|session| session.task != task);
         self.selected = None;
-        self.plan(cx.global::<Clock>().now());
+        self.plan(cx.global::<Clock>().now(), cx);
         cx.notify();
+    }
+
+    fn seeded(cx: &App) -> Self {
+        let now = cx.global::<Clock>().now();
+        let mut tasks = Task::seed();
+        let log = Vec::new();
+        let agenda = Self {
+            schedule: Schedule::plan(&mut tasks, &log, None, Self::HORIZON, now),
+            planned_at: Self::minute(now),
+            planned_on: now.date_naive(),
+            pin: None,
+            tasks,
+            log,
+            selected: None,
+        };
+
+        agenda.store(now, cx);
+
+        agenda
+    }
+
+    fn restored(stored: StoredAgenda, cx: &mut App) -> Self {
+        let StoredAgenda {
+            mut tasks,
+            log,
+            pin,
+            planned_at,
+            clock_offset,
+        } = stored;
+
+        Clock::resume(clock_offset, cx);
+
+        let now = cx.global::<Clock>().now();
+
+        for task in &tasks {
+            task.id.reserve();
+        }
+
+        let mut agenda = Self {
+            schedule: Schedule::plan(&mut tasks, &log, pin.as_ref(), Self::HORIZON, planned_at),
+            planned_on: planned_at.date_naive(),
+            planned_at: Self::minute(planned_at),
+            pin,
+            tasks,
+            log,
+            selected: None,
+        };
+
+        agenda.catch_up(now, cx);
+
+        agenda
+    }
+
+    fn catch_up(&mut self, now: DateTime<Local>, cx: &App) {
+        while self.planned_on < now.date_naive() {
+            let Some(midnight) = Self::midnight_after(self.planned_on) else {
+                break;
+            };
+
+            self.plan(midnight, cx);
+        }
+
+        self.advance(now, cx);
+    }
+
+    fn midnight_after(day: NaiveDate) -> Option<DateTime<Local>> {
+        day.succ_opt()?
+            .and_hms_opt(0, 0, 0)?
+            .and_local_timezone(Local)
+            .earliest()
+    }
+
+    fn advance(&mut self, now: DateTime<Local>, cx: &App) {
+        self.roll(now.date_naive());
+
+        let minute = Self::minute_of_day(now);
+        self.sweep(minute);
+        self.settle(minute);
+        self.hold(minute);
+        self.plan(now, cx);
     }
 
     fn hold(&mut self, now: i32) {
@@ -344,11 +411,11 @@ impl Agenda {
             self.pin = None;
         }
 
-        self.plan(cx.global::<Clock>().now());
+        self.plan(cx.global::<Clock>().now(), cx);
         cx.notify();
     }
 
-    fn plan(&mut self, now: DateTime<Local>) {
+    fn plan(&mut self, now: DateTime<Local>, cx: &App) {
         self.roll(now.date_naive());
         self.schedule = Schedule::plan(
             &mut self.tasks,
@@ -359,6 +426,20 @@ impl Agenda {
         );
         self.planned_at = Self::minute(now);
         self.hold(Self::minute_of_day(now));
+        self.store(now, cx);
+    }
+
+    fn store(&self, now: DateTime<Local>, cx: &App) {
+        let stored = StoredAgenda {
+            tasks: self.tasks.clone(),
+            log: self.log.clone(),
+            pin: self.pin.clone(),
+            planned_at: now,
+            clock_offset: cx.global::<Clock>().offset(),
+        };
+
+        cx.background_spawn(async move { stored.save() })
+            .detach_and_log_err(cx);
     }
 
     fn roll(&mut self, today: NaiveDate) {

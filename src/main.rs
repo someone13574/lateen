@@ -42,6 +42,7 @@ mod schedule;
 mod scrollbar;
 mod select;
 mod session;
+mod store;
 mod task;
 mod theme;
 mod titlebar;

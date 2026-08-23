@@ -1,7 +1,8 @@
 use gpui::prelude::*;
 use gpui::{App, Global, Rgba, Window, WindowAppearance, rgb, rgba};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockColor {
     Blue,
     Red,

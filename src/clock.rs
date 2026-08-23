@@ -159,6 +159,10 @@ impl Clock {
         Local::now() + self.offset
     }
 
+    pub fn offset(&self) -> Duration {
+        self.offset
+    }
+
     pub fn minute_of_day(&self) -> f32 {
         let now = self.now();
         let fraction = (now.nanosecond() % 1_000_000_000) as f32 / 1e9;
@@ -176,6 +180,10 @@ impl Clock {
     pub fn reset(cx: &mut App) {
         cx.update_global::<Self, _>(|clock, _cx| clock.offset = Duration::zero());
         cx.refresh_windows();
+    }
+
+    pub fn resume(offset: Duration, cx: &mut App) {
+        cx.update_global::<Self, _>(|clock, _cx| clock.offset = offset);
     }
 }
 

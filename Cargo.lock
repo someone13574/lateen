@@ -2917,6 +2917,8 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "rust-embed",
+ "serde",
+ "serde_json",
  "unicode-segmentation",
  "zbus",
 ]

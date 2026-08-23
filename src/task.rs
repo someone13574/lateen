@@ -3,21 +3,27 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{Datelike, NaiveDate, Weekday};
 use gpui::SharedString;
+use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
 use crate::theme::BlockColor;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TaskId(u64);
 
-impl TaskId {
-    fn next() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
+static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(0);
 
-        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+impl TaskId {
+    pub fn reserve(self) {
+        NEXT_TASK_ID.fetch_max(self.0 + 1, Ordering::Relaxed);
+    }
+
+    fn next() -> Self {
+        Self(NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: TaskId,
     pub title: SharedString,
@@ -31,7 +37,7 @@ pub struct Task {
     pub kind: TaskKind,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Dates {
     pub from: Option<i32>,
     pub until: Option<i32>,
@@ -61,6 +67,7 @@ impl Dates {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub enum TaskKind {
     Fixed {
         start: i32,
@@ -267,6 +274,7 @@ impl Task {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Flexible {
     pub total: i32,
     pub repeat: Repeat,
@@ -294,7 +302,7 @@ impl Flexible {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Repeat {
     Never,
     Daily,
@@ -316,21 +324,21 @@ impl Repeat {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Recurrence {
     Never,
     Weekly,
     Biweekly,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Sessions {
     pub shortest: i32,
     pub preferred: i32,
     pub longest: i32,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Priority {
     Lowest,
     Low,
