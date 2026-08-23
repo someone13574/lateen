@@ -252,7 +252,11 @@ impl Agenda {
 
     fn seeded(cx: &App) -> Self {
         let now = cx.global::<Clock>().now();
-        let mut tasks = Task::seed();
+        let mut tasks = if StoredAgenda::starts_empty() {
+            Vec::new()
+        } else {
+            Task::seed()
+        };
         let log = Vec::new();
         let agenda = Self {
             schedule: Schedule::plan(&mut tasks, &log, None, Self::HORIZON, now),

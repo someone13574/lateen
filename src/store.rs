@@ -23,17 +23,22 @@ impl StoredAgenda {
     const FILE: &str = "state.json";
     const STAGED: &str = "state.json.new";
     const RESET: &str = "LATEEN_RESET_STATE";
+    const EMPTY: &str = "LATEEN_EMPTY_STATE";
 
     pub fn load() -> Option<Self> {
         let path = Self::directory()?.join(Self::FILE);
 
-        if env::var_os(Self::RESET).is_some() {
+        if env::var_os(Self::RESET).is_some() || Self::starts_empty() {
             let _ = fs::remove_file(&path);
 
             return None;
         }
 
         serde_json::from_str(&fs::read_to_string(&path).ok()?).ok()
+    }
+
+    pub fn starts_empty() -> bool {
+        env::var_os(Self::EMPTY).is_some()
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
