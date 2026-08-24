@@ -1,9 +1,11 @@
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
-    Action, App, BoxShadow, Div, Entity, FocusHandle, Focusable, KeyBinding, MouseButton, Rgba,
-    Role, SharedString, Stateful, Text, Window, actions, deferred, div, px, relative, svg,
+    Action, App, BoxShadow, Div, Entity, FocusHandle, Focusable, KeyBinding, KeyDownEvent,
+    Keystroke, MouseButton, Rgba, Role, SharedString, Stateful, Text, Window, actions, deferred,
+    div, px, relative, svg,
 };
 
 use crate::theme::ActiveTheme;
@@ -18,6 +20,8 @@ pub type SelectHandler = dyn Fn(usize, &mut Window, &mut App) + 'static;
 pub struct SelectState {
     focus_handle: FocusHandle,
     open: bool,
+    query: String,
+    typed_at: Instant,
 }
 
 impl SelectState {
@@ -27,7 +31,7 @@ impl SelectState {
         let focus_handle = cx.focus_handle().tab_stop(true);
 
         cx.on_blur(&focus_handle, window, |state, _window, cx| {
-            state.open = false;
+            state.close();
             cx.notify();
         })
         .detach();
@@ -35,6 +39,8 @@ impl SelectState {
         Self {
             focus_handle,
             open: false,
+            query: String::new(),
+            typed_at: Instant::now(),
         }
     }
 
@@ -48,6 +54,24 @@ impl SelectState {
             KeyBinding::new("tab", FocusNext, Some(Self::KEY_CONTEXT)),
             KeyBinding::new("shift-tab", FocusPrevious, Some(Self::KEY_CONTEXT)),
         ]);
+    }
+
+    const TYPING_PAUSE: Duration = Duration::from_secs(1);
+
+    fn close(&mut self) {
+        self.open = false;
+        self.query.clear();
+    }
+
+    fn extend_query(&mut self, character: &str) {
+        let now = Instant::now();
+
+        if now.duration_since(self.typed_at) > Self::TYPING_PAUSE {
+            self.query.clear();
+        }
+
+        self.typed_at = now;
+        self.query.push_str(character);
     }
 }
 
@@ -120,7 +144,7 @@ impl Select {
 
     fn close(state: &Entity<SelectState>, cx: &mut App) {
         state.update(cx, |state, cx| {
-            state.open = false;
+            state.close();
             cx.notify();
         });
     }
@@ -270,6 +294,51 @@ impl Select {
             })
     }
 
+    fn search(options: &[SharedString], selected: usize, query: &str) -> Option<usize> {
+        let first = query.chars().next()?;
+        let repeated = query.chars().all(|character| character == first);
+        let (needle, from) = if repeated {
+            (&query[..first.len_utf8()], selected + 1)
+        } else {
+            (query, selected)
+        };
+
+        (0..options.len())
+            .map(|step| (from + step) % options.len())
+            .find(|index| options[*index].to_lowercase().starts_with(needle))
+    }
+
+    fn typed_character(keystroke: &Keystroke) -> Option<String> {
+        let character = keystroke.key_char.as_ref()?;
+        let modifiers = keystroke.modifiers;
+        let typing = !modifiers.control && !modifiers.alt && !modifiers.platform;
+
+        (typing && !character.is_empty() && !character.chars().any(char::is_control))
+            .then(|| character.to_lowercase())
+    }
+
+    fn typed(&self) -> impl Fn(&KeyDownEvent, &mut Window, &mut App) + 'static {
+        let state = self.state.clone();
+        let options = self.options.clone();
+        let on_select = self.on_select.clone();
+        let selected = self.selected;
+
+        move |event, window, cx| {
+            let Some(character) = Self::typed_character(&event.keystroke) else {
+                return;
+            };
+
+            let found = state.update(cx, |state, _cx| {
+                state.extend_query(&character);
+                Self::search(&options, selected, &state.query)
+            });
+
+            if let (Some(index), Some(on_select)) = (found, &on_select) {
+                on_select(index, window, cx);
+            }
+        }
+    }
+
     fn step<A: Action>(&self, delta: i32) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
         let on_select = self.on_select.clone();
         let last = self.options.len().saturating_sub(1) as i32;
@@ -304,6 +373,7 @@ impl RenderOnce for Select {
             .on_action(self.step::<Previous>(-1))
             .on_action(|_: &FocusNext, window: &mut Window, cx: &mut App| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window: &mut Window, cx: &mut App| window.focus_prev(cx))
+            .on_key_down(self.typed())
             .on_mouse_down_out(move |_event, _window, cx| Self::close(&dismiss, cx))
             .when(open, |select| {
                 select.child(deferred(self.menu(cx)).with_priority(1))
