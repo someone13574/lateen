@@ -18,10 +18,11 @@ pub struct Planner<'a> {
 }
 
 impl<'a> Planner<'a> {
-    const REACHES: [Reach; 3] = [
-        Reach::new(false, false),
-        Reach::new(true, false),
-        Reach::new(true, true),
+    const REACHES: [Reach; 4] = [
+        Reach::new(false, false, false),
+        Reach::new(true, false, false),
+        Reach::new(true, true, false),
+        Reach::new(true, true, true),
     ];
     const WEEK: i32 = 7;
     const FORTNIGHT: i32 = 14;
@@ -43,6 +44,8 @@ impl<'a> Planner<'a> {
     const FRAGMENT: f32 = 2.5;
     const FATIGUE: f32 = 25.0;
     const CROWD: f32 = 60.0;
+    const PILE: f32 = 6.0;
+    const BREATHER: f32 = 0.3;
     const HASTE: f32 = 12.0;
     const DELAY: f32 = 8.0;
     const SPREAD: f32 = 45.0;
@@ -267,21 +270,19 @@ impl<'a> Planner<'a> {
             return Vec::new();
         }
 
-        let mut earliest = demand.earliest;
         let mut used = self.busy_days(demand);
         let mut blocks = Vec::new();
 
         for work in Self::chunk(demand.flexible, demand.need) {
             let segments = Self::segments(demand.task, work);
             let span = Self::span(&segments);
-            let Some(at) = self.choose(demand, pending, span, work, earliest, &used) else {
+            let Some(at) = self.choose(demand, pending, span, work, &used) else {
                 continue;
             };
             let conflict = self.overlapped(&at);
 
             self.commit(demand.task.id, at.start, span, demand.task.priority);
             used.push(Self::day(at.start));
-            earliest = at.end + Self::MIN_SESSION_GAP;
             blocks.push(Self::block(demand.task, at.start, segments).conflicting(conflict));
         }
 
@@ -302,17 +303,25 @@ impl<'a> Planner<'a> {
         pending: &[Demand],
         span: i32,
         work: i32,
-        earliest: i32,
         used: &[i32],
     ) -> Option<Range<i32>> {
         for reach in Self::REACHES {
             let mut best: Option<(f32, Range<i32>)> = None;
 
-            for day in Self::day(earliest)..self.limit(demand, reach) {
-                let view = self.view(demand, pending, day, span, earliest, reach);
+            for day in Self::day(demand.earliest)..self.limit(demand, reach) {
+                if !reach.off && !self.occurs_on(demand.task, day) {
+                    continue;
+                }
+
+                let view = self.view(demand, pending, day, span, reach);
 
                 for start in &view.starts {
                     let at = *start..*start + span;
+
+                    if self.rushed(demand.task.id, &at) {
+                        continue;
+                    }
+
                     let cost = self.cost(demand, &view, &at, work, used);
 
                     if best.as_ref().is_none_or(|(lowest, _)| cost < *lowest) {
@@ -329,18 +338,26 @@ impl<'a> Planner<'a> {
         None
     }
 
+    fn rushed(&self, task: TaskId, at: &Range<i32>) -> bool {
+        self.commitments.iter().any(|taken| {
+            taken.task == task
+                && taken.start - Self::MIN_SESSION_GAP < at.end
+                && taken.end + Self::MIN_SESSION_GAP > at.start
+        })
+    }
+
     fn view(
         &self,
         demand: &Demand,
         pending: &[Demand],
         day: i32,
         span: i32,
-        earliest: i32,
         reach: Reach,
     ) -> DayView {
         let midnight = Self::day_start(day);
         let closes = midnight + Block::MINUTES_PER_DAY;
-        let bounds = midnight.max(earliest)..(closes + span).min(Self::day_start(self.horizon));
+        let bounds =
+            midnight.max(demand.earliest)..(closes + span).min(Self::day_start(self.horizon));
         let open = self.free(
             bounds.clone(),
             reach.outrank.then_some(demand.task.priority),
@@ -356,10 +373,23 @@ impl<'a> Planner<'a> {
             starts: Self::starts(&open, &bounds, span, closes),
             runs: Self::joined(&busy, Self::JOIN),
             load: self.booked(day, &rivals),
+            planned: self.chosen_spans(day),
             rivals,
             busy,
             day,
         }
+    }
+
+    fn chosen_spans(&self, day: i32) -> Vec<Range<i32>> {
+        let midnight = Self::day_start(day);
+        let closes = midnight + Block::MINUTES_PER_DAY;
+
+        self.commitments
+            .iter()
+            .filter(|taken| taken.chosen)
+            .map(|taken| taken.start.max(midnight)..taken.end.min(closes))
+            .filter(|span| span.end > span.start)
+            .collect()
     }
 
     fn booked(&self, day: i32, rivals: &[Rival]) -> i32 {
@@ -463,6 +493,8 @@ impl<'a> Planner<'a> {
             + Self::fragment(view, at)
             + Self::fatigue(view, at)
             + Self::crowd(view, at)
+            + Self::piled(view, at)
+            + Self::breather(view, at)
             + view
                 .rivals
                 .iter()
@@ -584,12 +616,27 @@ impl<'a> Planner<'a> {
     }
 
     fn crowd(view: &DayView, at: &Range<i32>) -> f32 {
-        let added = at
-            .end
-            .min(Self::day_start(view.day) + Block::MINUTES_PER_DAY)
-            - at.start;
+        let added = view.within(at);
 
         Self::packed(view.load + added) - Self::packed(view.load)
+    }
+
+    fn piled(view: &DayView, at: &Range<i32>) -> f32 {
+        let added = view.within(at);
+
+        let planned = view.chosen();
+
+        Self::heaped(planned + added) - Self::heaped(planned)
+    }
+
+    fn breather(view: &DayView, at: &Range<i32>) -> f32 {
+        let gap = view.nearest(at).min(Self::ELBOW_ROOM);
+
+        Self::BREATHER * (Self::ELBOW_ROOM - gap) as f32
+    }
+
+    fn heaped(planned: i32) -> f32 {
+        Self::PILE * (planned as f32 / 60.0).powi(2)
     }
 
     fn packed(load: i32) -> f32 {
@@ -889,11 +936,18 @@ impl<'a> Planner<'a> {
 
     fn commit(&mut self, task: TaskId, start: i32, span: i32, priority: Priority) {
         self.commitments.push(Commitment {
+            chosen: self.chosen(task),
             task,
             start,
             end: start + span,
             priority,
         });
+    }
+
+    fn chosen(&self, task: TaskId) -> bool {
+        self.tasks
+            .iter()
+            .any(|other| other.id == task && matches!(other.kind, TaskKind::Flexible(_)))
     }
 
     fn overlapped(&self, at: &Range<i32>) -> bool {
@@ -930,6 +984,7 @@ struct Commitment {
     start: i32,
     end: i32,
     priority: Priority,
+    chosen: bool,
 }
 
 struct DayView {
@@ -938,10 +993,29 @@ struct DayView {
     busy: Vec<Range<i32>>,
     runs: Vec<Range<i32>>,
     load: i32,
+    planned: Vec<Range<i32>>,
     rivals: Vec<Rival>,
 }
 
 impl DayView {
+    fn chosen(&self) -> i32 {
+        self.planned.iter().map(|span| span.end - span.start).sum()
+    }
+
+    fn nearest(&self, at: &Range<i32>) -> i32 {
+        self.planned
+            .iter()
+            .map(|span| (at.start - span.end).max(span.start - at.end).max(0))
+            .min()
+            .unwrap_or(Planner::ELBOW_ROOM)
+    }
+
+    fn within(&self, at: &Range<i32>) -> i32 {
+        at.end
+            .min(Planner::day_start(self.day) + Block::MINUTES_PER_DAY)
+            - at.start
+    }
+
     fn strained(&self, run: &Range<i32>) -> f32 {
         let growth: i32 = self.rivals.iter().map(|rival| rival.likely(run)).sum();
 
@@ -1004,12 +1078,17 @@ struct Demand<'a> {
 
 #[derive(Clone, Copy)]
 struct Reach {
+    off: bool,
     beyond: bool,
     outrank: bool,
 }
 
 impl Reach {
-    const fn new(beyond: bool, outrank: bool) -> Self {
-        Self { beyond, outrank }
+    const fn new(off: bool, beyond: bool, outrank: bool) -> Self {
+        Self {
+            off,
+            beyond,
+            outrank,
+        }
     }
 }
