@@ -123,17 +123,23 @@ impl Schedule {
     ) -> Bounds<Pixels> {
         let width = area.size.width / lanes as f32;
         let slice = block.slice(day);
+        let top = Self::edge(slice.start, area);
+        let bottom = Self::edge(slice.end, area);
 
         Bounds {
             origin: point(
                 area.origin.x + width * lane as f32 + Self::LANE_PADDING,
-                area.origin.y + Self::scale(slice.start, area),
+                top,
             ),
             size: size(
                 width - Self::LANE_PADDING * 2.0,
-                Self::scale(slice.end - slice.start, area).max(Self::MIN_HEIGHT),
+                (bottom - top).max(Self::MIN_HEIGHT),
             ),
         }
+    }
+
+    fn edge(minute: i32, area: Bounds<Pixels>) -> Pixels {
+        px(f32::from(area.origin.y + Self::scale(minute, area)).round())
     }
 
     fn separate(bounds: &mut [Bounds<Pixels>]) {

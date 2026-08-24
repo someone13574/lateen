@@ -292,11 +292,11 @@ impl BlockView {
 
     fn segments(&self, colors: &BlockColors) -> Vec<Div> {
         let edges = u8::from(self.opens) + u8::from(self.closes);
-        let content = self.bounds.size.height - Self::BORDER_WIDTH * edges as f32;
+        let content = f32::from(self.bounds.size.height - Self::BORDER_WIDTH * edges as f32);
         let visible = (self.visible.end - self.visible.start).max(1) as f32;
         let mut drawn = Vec::new();
         let mut elapsed = 0;
-        let mut top = px(0.0);
+        let mut top = 0.0;
 
         for segment in &self.segments {
             let natural = elapsed;
@@ -308,8 +308,12 @@ impl BlockView {
                 continue;
             }
 
-            let bottom = content * ((end - self.visible.start) as f32 / visible);
-            drawn.push((segment.kind, bottom - top, natural >= self.visible.start));
+            let bottom = (content * ((end - self.visible.start) as f32 / visible)).round();
+            drawn.push((
+                segment.kind,
+                px(bottom - top),
+                natural >= self.visible.start,
+            ));
             top = bottom;
         }
 
@@ -345,7 +349,7 @@ impl BlockView {
             .flex_none()
             .h(height)
             .bg(if work { colors.work } else { colors.transition })
-            .when(line && !work, |segment| {
+            .when(line && !top, |segment| {
                 segment
                     .border_t(Self::BORDER_WIDTH)
                     .border_color(colors.segment_line)
