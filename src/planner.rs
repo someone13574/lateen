@@ -1,7 +1,7 @@
 use std::cmp::Reverse;
 use std::ops::Range;
 
-use chrono::{Datelike, NaiveDate, TimeDelta, Weekday};
+use chrono::{Datelike, Months, NaiveDate, TimeDelta, Weekday};
 
 use crate::block::{Block, Segment, SegmentKind};
 use crate::session::Session;
@@ -23,6 +23,8 @@ impl<'a> Planner<'a> {
         Reach::new(true, false),
         Reach::new(true, true),
     ];
+    const WEEK: i32 = 7;
+    const FORTNIGHT: i32 = 14;
     const START_GRID: i32 = 5;
     const MOST_SESSIONS: i32 = 40;
     const MIN_SESSION_GAP: i32 = 20;
@@ -760,19 +762,53 @@ impl<'a> Planner<'a> {
     }
 
     fn places_on(&self, task: &Task, recurrence: Recurrence, day: i32) -> bool {
-        if !task.dates.covers(day) {
+        if !task.covers(day) {
             return false;
         }
 
         match recurrence {
             Recurrence::Never => day == task.dates.first(),
             Recurrence::Weekly => self.occurs_on(task, day),
-            Recurrence::Biweekly => self.occurs_on(task, day) && self.week(day) % 2 == 0,
+            Recurrence::Biweekly => {
+                self.occurs_on(task, day)
+                    && (day - self.fortnight_opens(task)).rem_euclid(Self::FORTNIGHT) < Self::WEEK
+            }
+            Recurrence::Monthly => self.same_date(task, day, false),
+            Recurrence::Yearly => self.same_date(task, day, true),
         }
     }
 
-    fn week(&self, day: i32) -> i32 {
-        (self.today.num_days_from_ce() + day).div_euclid(7)
+    fn same_date(&self, task: &Task, day: i32, yearly: bool) -> bool {
+        let opening = self.date(task.dates.first());
+        let date = self.date(day);
+        let month = !yearly || date.month() == opening.month();
+
+        month && date.day() == Self::monthday(opening.day(), date)
+    }
+
+    fn monthday(wanted: u32, within: NaiveDate) -> u32 {
+        let length = within
+            .with_day(1)
+            .and_then(|first| first.checked_add_months(Months::new(1)))
+            .map_or(31, |next| {
+                (next - within.with_day(1).unwrap()).num_days() as u32
+            });
+
+        wanted.min(length)
+    }
+
+    fn date(&self, day: i32) -> NaiveDate {
+        self.today + TimeDelta::days(day as i64)
+    }
+
+    fn fortnight_opens(&self, task: &Task) -> i32 {
+        let Some(from) = task.dates.from else {
+            return self.opens(Self::FORTNIGHT);
+        };
+
+        (from..from + Self::WEEK)
+            .find(|day| self.occurs_on(task, *day))
+            .unwrap_or(from)
     }
 
     fn weekday(&self, day: i32) -> Weekday {

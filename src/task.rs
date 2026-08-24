@@ -6,6 +6,7 @@ use gpui::SharedString;
 use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
+use crate::subscription::SubscribedEvent;
 use crate::theme::BlockColor;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -35,6 +36,10 @@ pub struct Task {
     pub cleanup: i32,
     pub dates: Dates,
     pub kind: TaskKind,
+    #[serde(default)]
+    pub cancelled: Vec<i32>,
+    #[serde(default)]
+    pub source: Option<SubscribedEvent>,
 }
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -205,6 +210,65 @@ impl Task {
         self
     }
 
+    pub fn spanning(mut self, dates: Dates) -> Self {
+        self.dates = dates;
+        self
+    }
+
+    pub fn without(mut self, cancelled: Vec<i32>) -> Self {
+        self.cancelled = cancelled;
+        self
+    }
+
+    pub fn shift(&mut self, days: i32) {
+        self.dates.shift(days);
+
+        for day in &mut self.cancelled {
+            *day -= days;
+        }
+    }
+
+    pub fn covers(&self, day: i32) -> bool {
+        self.dates.covers(day) && !self.cancelled.contains(&day)
+    }
+
+    pub fn recurring(mut self, recurrence: Recurrence) -> Self {
+        if let TaskKind::Fixed {
+            recurrence: current,
+            ..
+        } = &mut self.kind
+        {
+            *current = recurrence;
+        }
+
+        self
+    }
+
+    pub fn managed(mut self, source: SubscribedEvent) -> Self {
+        self.source = Some(source);
+        self
+    }
+
+    pub fn keep_unmanaged(&mut self, previous: &Self) {
+        self.color = previous.color;
+        self.priority = previous.priority;
+        self.prep = previous.prep;
+        self.cleanup = previous.cleanup;
+
+        if let (
+            TaskKind::Fixed {
+                overrun_percent, ..
+            },
+            TaskKind::Fixed {
+                overrun_percent: kept,
+                ..
+            },
+        ) = (&mut self.kind, &previous.kind)
+        {
+            *overrun_percent = *kept;
+        }
+    }
+
     pub fn run(&self, day: i32, today: NaiveDate) -> Range<i32> {
         let TaskKind::Flexible(flexible) = &self.kind else {
             return day * Block::MINUTES_PER_DAY..(day + 1) * Block::MINUTES_PER_DAY;
@@ -245,6 +309,15 @@ impl Task {
         }
     }
 
+    pub fn repeats_by_weekday(&self) -> bool {
+        match &self.kind {
+            TaskKind::Fixed { recurrence, .. } => {
+                matches!(recurrence, Recurrence::Weekly | Recurrence::Biweekly)
+            }
+            TaskKind::Flexible(flexible) => !matches!(flexible.repeat, Repeat::Never),
+        }
+    }
+
     pub fn due(mut self, from: i32, until: i32) -> Self {
         self.dates = Dates {
             from: Some(from),
@@ -270,6 +343,8 @@ impl Task {
             cleanup: 0,
             dates: Dates::default(),
             kind,
+            cancelled: Vec::new(),
+            source: None,
         }
     }
 }
@@ -329,6 +404,8 @@ pub enum Recurrence {
     Never,
     Weekly,
     Biweekly,
+    Monthly,
+    Yearly,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]

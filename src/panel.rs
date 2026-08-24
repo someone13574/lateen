@@ -5,15 +5,15 @@ use gpui::prelude::*;
 use gpui::{Entity, Pixels, Window, div, px};
 
 use crate::agenda::Agenda;
+use crate::calendar_list::CalendarList;
 use crate::commitment_list::CommitmentList;
 use crate::editor::Editor;
-use crate::import::Import;
 use crate::now_card::NowCard;
 use crate::theme::ActiveTheme;
 
 pub struct Panel {
     agenda: Entity<Agenda>,
-    import: Entity<Import>,
+    calendars: Entity<CalendarList>,
     editor: Option<Entity<Editor>>,
 }
 
@@ -23,7 +23,7 @@ impl Panel {
 
     pub fn new(
         agenda: Entity<Agenda>,
-        import: Entity<Import>,
+        calendars: Entity<CalendarList>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -36,7 +36,7 @@ impl Panel {
 
         Self {
             agenda,
-            import,
+            calendars,
             editor: None,
         }
     }
@@ -46,7 +46,7 @@ impl Panel {
 
         if selected != self.editor.as_ref().map(|editor| editor.read(cx).task()) {
             self.editor = selected.map(|task| {
-                cx.new(|cx| Editor::new(agenda.clone(), self.import.clone(), task, window, cx))
+                cx.new(|cx| Editor::new(agenda.clone(), self.calendars.clone(), task, window, cx))
             });
         }
     }
@@ -81,9 +81,8 @@ impl Render for Panel {
             .child(NowCard::new(&self.agenda, cx))
             .child(match &self.editor {
                 Some(editor) => editor.clone().into_any_element(),
-                None => {
-                    CommitmentList::new(self.agenda.clone(), self.import.clone()).into_any_element()
-                }
+                None => CommitmentList::new(self.agenda.clone(), self.calendars.clone())
+                    .into_any_element(),
             })
     }
 }

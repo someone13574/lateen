@@ -93,6 +93,8 @@ pub struct Select {
 }
 
 impl Select {
+    const READONLY_OPACITY: f32 = 0.55;
+
     pub fn new(
         id: &'static str,
         label: &'static str,
@@ -361,7 +363,7 @@ impl RenderOnce for Select {
         let field = div().relative().w_full().child(self.trigger(focused, cx));
 
         if self.readonly {
-            return field.into_any_element();
+            return field.opacity(Self::READONLY_OPACITY).into_any_element();
         }
 
         field

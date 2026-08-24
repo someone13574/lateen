@@ -1,21 +1,26 @@
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::ops::Range;
 use std::time::Duration;
 
 use chrono::{DateTime, Local, NaiveDate, Timelike};
 use gpui::App;
 use gpui::prelude::*;
+use gpui_tokio::Tokio;
 
 use crate::block::Block;
 use crate::clock::Clock;
+use crate::ics::{Ics, Import};
 use crate::notifier::Notifier;
 use crate::schedule::Schedule;
 use crate::session::{Outcome, Session};
 use crate::store::StoredAgenda;
+use crate::subscription::{Subscription, SubscriptionId};
 use crate::task::{Repeat, Task, TaskId, TaskKind};
 
 pub struct Agenda {
     tasks: Vec<Task>,
+    subscriptions: Vec<Subscription>,
     log: Vec<Session>,
     pin: Option<Block>,
     schedule: Schedule,
@@ -25,9 +30,10 @@ pub struct Agenda {
 }
 
 impl Agenda {
-    pub const HORIZON: i32 = 14;
+    pub const HORIZON: i32 = 48;
 
     const SAMPLE: Duration = Duration::from_secs(1);
+    const RESYNC_MINUTES: i64 = 30;
 
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self::follow_clock(cx);
@@ -58,6 +64,65 @@ impl Agenda {
 
     pub fn tasks(&self) -> &[Task] {
         &self.tasks
+    }
+
+    pub fn subscriptions(&self) -> &[Subscription] {
+        &self.subscriptions
+    }
+
+    pub fn subscribe(&mut self, url: &str, cx: &mut Context<Self>) {
+        let subscription = Subscription::new(url);
+        let known = self
+            .subscriptions
+            .iter()
+            .find(|other| other.url == subscription.url)
+            .map(|other| other.id);
+        let id = known.unwrap_or(subscription.id);
+
+        if known.is_none() {
+            self.subscriptions.push(subscription);
+        }
+
+        self.sync(id, cx);
+    }
+
+    pub fn unsubscribe(&mut self, id: SubscriptionId, cx: &mut Context<Self>) {
+        self.subscriptions
+            .retain(|subscription| subscription.id != id);
+        self.drop_imported(id);
+        self.drop_dangling();
+        self.plan(cx.global::<Clock>().now(), cx);
+        cx.notify();
+    }
+
+    pub fn sync(&mut self, id: SubscriptionId, cx: &mut Context<Self>) {
+        let today = self.planned_on;
+        let Some(subscription) = self.subscriptions.iter_mut().find(|other| other.id == id) else {
+            return;
+        };
+
+        if subscription.syncing {
+            return;
+        }
+
+        subscription.syncing = true;
+
+        let fetch = Tokio::spawn_result(cx, Subscription::fetch(subscription.url.clone()));
+
+        cx.spawn(async move |agenda, cx| {
+            let import = cx
+                .background_spawn(async move {
+                    anyhow::Ok(Ics::parse(&fetch.await?).import(id, today, Agenda::HORIZON))
+                })
+                .await;
+
+            agenda
+                .update(cx, |agenda, cx| agenda.adopt(id, import, today, cx))
+                .ok();
+        })
+        .detach();
+
+        cx.notify();
     }
 
     pub fn today(&self) -> NaiveDate {
@@ -220,6 +285,7 @@ impl Agenda {
         };
 
         edit(target);
+        self.share_unmanaged(task);
 
         if self.pin.as_ref().is_some_and(|pin| pin.task == task) {
             self.pin = None;
@@ -250,6 +316,121 @@ impl Agenda {
         cx.notify();
     }
 
+    fn adopt(
+        &mut self,
+        id: SubscriptionId,
+        import: anyhow::Result<Import>,
+        today: NaiveDate,
+        cx: &mut Context<Self>,
+    ) {
+        let now = cx.global::<Clock>().now();
+        let Some(subscription) = self.subscriptions.iter_mut().find(|other| other.id == id) else {
+            return;
+        };
+
+        match import {
+            Ok(import) => {
+                let tasks = subscription.imported(import, now);
+
+                self.replace(id, tasks, today);
+            }
+            Err(failure) => subscription.failed(failure, now),
+        }
+
+        self.plan(now, cx);
+        cx.notify();
+    }
+
+    fn replace(&mut self, id: SubscriptionId, mut tasks: Vec<Task>, today: NaiveDate) {
+        let rolled = (self.planned_on - today).num_days() as i32;
+        let mut claimed = HashSet::new();
+
+        for task in &mut tasks {
+            task.shift(rolled);
+
+            if let Some(previous) = self
+                .tasks
+                .iter()
+                .find(|other| Self::same_event(other, task))
+            {
+                task.keep_unmanaged(previous);
+            }
+
+            let previous = self
+                .tasks
+                .iter()
+                .find(|other| Self::same_occurrence(other, task) && !claimed.contains(&other.id));
+
+            if let Some(previous) = previous {
+                claimed.insert(previous.id);
+                task.id = previous.id;
+            }
+        }
+
+        self.drop_imported(id);
+        self.tasks.extend(tasks);
+        self.drop_dangling();
+    }
+
+    fn share_unmanaged(&mut self, task: TaskId) {
+        let Some(edited) = self.task(task).cloned() else {
+            return;
+        };
+        let Some(source) = &edited.source else {
+            return;
+        };
+
+        for other in &mut self.tasks {
+            if other.id != task && other.source.as_ref() == Some(source) {
+                other.keep_unmanaged(&edited);
+            }
+        }
+    }
+
+    fn drop_imported(&mut self, id: SubscriptionId) {
+        self.tasks.retain(|task| {
+            task.source
+                .as_ref()
+                .is_none_or(|source| source.subscription != id)
+        });
+    }
+
+    fn drop_dangling(&mut self) {
+        let remaining: Vec<_> = self.tasks.iter().map(|task| task.id).collect();
+
+        self.log.retain(|session| remaining.contains(&session.task));
+        self.pin = self.pin.take().filter(|pin| remaining.contains(&pin.task));
+        self.selected = self.selected.filter(|task| remaining.contains(task));
+    }
+
+    fn same_occurrence(task: &Task, other: &Task) -> bool {
+        Self::same_event(task, other) && task.dates.from == other.dates.from
+    }
+
+    fn same_event(task: &Task, other: &Task) -> bool {
+        task.source.is_some() && task.source == other.source
+    }
+
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let now = cx.global::<Clock>().now();
+        let stale: Vec<_> = self
+            .subscriptions
+            .iter()
+            .filter(|subscription| !subscription.syncing)
+            .filter(|subscription| {
+                subscription.synced.is_none_or(|synced| {
+                    (now - synced).num_minutes() >= Self::RESYNC_MINUTES
+                        || synced.date_naive() != now.date_naive()
+                })
+            })
+            .map(|subscription| subscription.id)
+            .collect();
+
+        for id in stale {
+            self.sync(id, cx);
+        }
+    }
+
     fn seeded(cx: &App) -> Self {
         let now = cx.global::<Clock>().now();
         let mut tasks = if StoredAgenda::starts_empty() {
@@ -263,6 +444,7 @@ impl Agenda {
             planned_at: Self::minute(now),
             planned_on: now.date_naive(),
             pin: None,
+            subscriptions: Vec::new(),
             tasks,
             log,
             selected: None,
@@ -276,6 +458,7 @@ impl Agenda {
     fn restored(stored: StoredAgenda, cx: &mut App) -> Self {
         let StoredAgenda {
             mut tasks,
+            subscriptions,
             log,
             pin,
             planned_at,
@@ -290,11 +473,16 @@ impl Agenda {
             task.id.reserve();
         }
 
+        for subscription in &subscriptions {
+            subscription.id.reserve();
+        }
+
         let mut agenda = Self {
             schedule: Schedule::plan(&mut tasks, &log, pin.as_ref(), Self::HORIZON, planned_at),
             planned_on: planned_at.date_naive(),
             planned_at: Self::minute(planned_at),
             pin,
+            subscriptions,
             tasks,
             log,
             selected: None,
@@ -436,6 +624,7 @@ impl Agenda {
     fn store(&self, now: DateTime<Local>, cx: &App) {
         let stored = StoredAgenda {
             tasks: self.tasks.clone(),
+            subscriptions: self.subscriptions.clone(),
             log: self.log.clone(),
             pin: self.pin.clone(),
             planned_at: now,
@@ -474,7 +663,7 @@ impl Agenda {
         }
 
         for task in &mut self.tasks {
-            task.dates.shift(days);
+            task.shift(days);
         }
     }
 
@@ -532,6 +721,7 @@ impl Agenda {
                         cx.notify();
                     }
 
+                    agenda.refresh(cx);
                     Notifier::announce(agenda, cx);
                 });
 

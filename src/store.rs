@@ -7,11 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
 use crate::session::Session;
+use crate::subscription::Subscription;
 use crate::task::Task;
 
 #[derive(Serialize, Deserialize)]
 pub struct StoredAgenda {
     pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub subscriptions: Vec<Subscription>,
     pub log: Vec<Session>,
     pub pin: Option<Block>,
     pub planned_at: DateTime<Local>,

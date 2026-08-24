@@ -21,7 +21,9 @@ impl<'a> Colorer<'a> {
                 continue;
             }
 
-            let color = Self::pick(&tasks[index], &tasks[..index]);
+            let color = Self::shared(&tasks[index], tasks)
+                .unwrap_or_else(|| Self::pick(&tasks[index], &tasks[..index]));
+
             tasks[index].color = Some(color);
         }
 
@@ -43,10 +45,30 @@ impl<'a> Colorer<'a> {
         };
 
         colorer.repaint();
+        Self::unify(colorer.tasks);
 
         for block in blocks.iter_mut().chain(past.iter_mut()) {
             block.color = Self::position(colorer.tasks, block.task)
                 .and_then(|task| colorer.tasks[task].color);
+        }
+    }
+
+    fn shared(task: &Task, against: &[Task]) -> Option<BlockColor> {
+        let source = task.source.as_ref()?;
+
+        against
+            .iter()
+            .filter(|other| other.source.as_ref() == Some(source))
+            .find_map(|other| other.color)
+    }
+
+    fn unify(tasks: &mut [Task]) {
+        for index in 1..tasks.len() {
+            let (earlier, rest) = tasks.split_at_mut(index);
+
+            if let Some(color) = Self::shared(&rest[0], earlier) {
+                rest[0].color = Some(color);
+            }
         }
     }
 

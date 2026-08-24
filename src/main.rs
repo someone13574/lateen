@@ -9,9 +9,9 @@ use crate::assets::Assets;
 use crate::bottom_bar::BottomBar;
 use crate::button::ClickHandler;
 use crate::calendar::Calendar;
+use crate::calendar_list::CalendarList;
 use crate::clock::{Clock, ClockFormat};
 use crate::editor::Editor;
-use crate::import::Import;
 use crate::input::InputState;
 use crate::notifier::Notifier;
 use crate::panel::Panel;
@@ -27,6 +27,7 @@ mod block;
 mod bottom_bar;
 mod button;
 mod calendar;
+mod calendar_list;
 mod clock;
 mod colorer;
 mod commitment_list;
@@ -34,7 +35,7 @@ mod cursor;
 mod day_columns;
 mod editor;
 mod grid;
-mod import;
+mod ics;
 mod input;
 mod notifier;
 mod now_card;
@@ -46,6 +47,7 @@ mod select;
 mod selectable_text;
 mod session;
 mod store;
+mod subscription;
 mod task;
 mod theme;
 mod titlebar;
@@ -56,7 +58,7 @@ const APP_NAME: &str = "Lateen";
 
 struct RootView {
     agenda: Entity<Agenda>,
-    import: Entity<Import>,
+    calendars: Entity<CalendarList>,
     calendar: Entity<Calendar>,
     panel: Entity<Panel>,
     bottom_bar: Entity<BottomBar>,
@@ -65,21 +67,21 @@ struct RootView {
 impl RootView {
     fn add_commitment(&self) -> Box<ClickHandler> {
         let agenda = self.agenda.clone();
-        let import = self.import.clone();
+        let calendars = self.calendars.clone();
 
         Box::new(move |_window, cx| {
             agenda.update(cx, |agenda, cx| agenda.add(cx));
-            import.update(cx, |import, cx| import.close(cx));
+            calendars.update(cx, |calendars, cx| calendars.close(cx));
         })
     }
 
     fn import_calendar(&self) -> Box<ClickHandler> {
         let agenda = self.agenda.clone();
-        let import = self.import.clone();
+        let calendars = self.calendars.clone();
 
         Box::new(move |_window, cx| {
             agenda.update(cx, Agenda::deselect);
-            import.update(cx, |import, cx| import.toggle(cx));
+            calendars.update(cx, |calendars, cx| calendars.toggle(cx));
         })
     }
 }
@@ -120,6 +122,7 @@ impl Render for RootView {
 fn main() {
     gpui_platform::application().with_assets(Assets).run(|cx| {
         Assets::load_fonts(cx).expect("failed to load embedded fonts");
+        gpui_tokio::init(cx);
         Clock::init(cx);
         ClockFormat::init(cx);
         Editor::init(cx);
@@ -147,16 +150,16 @@ fn main() {
             Theme::init(window, cx);
 
             let agenda = cx.new(Agenda::new);
-            let import = cx.new(|cx| Import::new(window, cx));
+            let calendars = cx.new(|cx| CalendarList::new(agenda.clone(), window, cx));
 
             Notifier::init(agenda.clone(), cx);
 
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
-                panel: cx.new(|cx| Panel::new(agenda.clone(), import.clone(), window, cx)),
+                panel: cx.new(|cx| Panel::new(agenda.clone(), calendars.clone(), window, cx)),
                 bottom_bar: cx.new(BottomBar::new),
                 agenda,
-                import,
+                calendars,
             })
         })
         .unwrap();

@@ -195,8 +195,47 @@ struct SelectableTextElement {
     text: SharedString,
 }
 
+struct Row {
+    top: Pixels,
+    indices: Range<usize>,
+}
+
+enum PointedRow {
+    Above,
+    Below,
+    Within(usize),
+}
+
 impl SelectableTextElement {
     const HIT_MARGIN_GLYPHS: f32 = 3.0;
+
+    fn rows(layout: &TextLayout) -> Vec<Row> {
+        let rendered = layout.text();
+        let mut rows: Vec<Row> = Vec::new();
+
+        let boundaries = rendered
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .chain([rendered.len()]);
+
+        for index in boundaries {
+            let Some(position) = layout.position_for_index(index) else {
+                continue;
+            };
+
+            let opening = rows.last().map_or(index, |row| row.indices.end);
+
+            match rows.last_mut() {
+                Some(row) if row.top == position.y => row.indices.end = index,
+                _ => rows.push(Row {
+                    top: position.y,
+                    indices: opening..index,
+                }),
+            }
+        }
+
+        rows
+    }
 
     fn hit_margin(width: Pixels, rendered: &str) -> Pixels {
         let glyphs = rendered.graphemes(true).count().max(1);
@@ -207,19 +246,36 @@ impl SelectableTextElement {
     fn paint_highlight(&self, layout: &TextLayout, window: &mut Window, cx: &mut App) {
         let range = self.state.read(cx).range.clone();
         let rendered = layout.text();
-        let start = Self::rendered_index(&self.text, &rendered, range.start);
-        let end = Self::rendered_index(&self.text, &rendered, range.end);
+        let selected = Self::rendered_index(&self.text, &rendered, range.start)
+            ..Self::rendered_index(&self.text, &rendered, range.end);
 
-        if let (Some(start), Some(end)) = (
-            layout.position_for_index(start),
-            layout.position_for_index(end),
-        ) && start.x < end.x
-        {
-            window.paint_quad(fill(
-                Bounds::from_corners(start, point(end.x, end.y + layout.line_height())),
-                cx.theme().input_selection_bg,
-            ));
+        for row in Self::rows(layout) {
+            let Some(band) = Self::band(layout, &row, &selected) else {
+                continue;
+            };
+
+            window.paint_quad(fill(band, cx.theme().input_selection_bg));
         }
+    }
+
+    fn band(layout: &TextLayout, row: &Row, selected: &Range<usize>) -> Option<Bounds<Pixels>> {
+        let start = selected.start.max(row.indices.start);
+        let end = selected.end.min(row.indices.end);
+
+        if start >= end {
+            return None;
+        }
+
+        let left = match start == row.indices.start {
+            true => layout.bounds().left(),
+            false => layout.position_for_index(start)?.x,
+        };
+        let right = layout.position_for_index(end)?.x;
+
+        Some(Bounds::from_corners(
+            point(left, row.top),
+            point(right, row.top + layout.line_height()),
+        ))
     }
 
     fn begin_on_mouse_down(&self, layout: &TextLayout, hitbox: &Hitbox, window: &mut Window) {
@@ -287,15 +343,50 @@ impl SelectableTextElement {
 
     fn index_at(text: &str, layout: &TextLayout, position: Point<Pixels>) -> usize {
         let rendered = layout.text();
-        let index = rendered
+        let rows = Self::rows(layout);
+        let index = match Self::pointed_row(&rows, layout.line_height(), position) {
+            PointedRow::Above => 0,
+            PointedRow::Below => rendered.len(),
+            PointedRow::Within(row) => Self::nearest(layout, &rendered, &rows[row], position.x),
+        };
+
+        Self::full_index(text, &rendered, index)
+    }
+
+    fn pointed_row(rows: &[Row], line_height: Pixels, position: Point<Pixels>) -> PointedRow {
+        let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+            return PointedRow::Above;
+        };
+
+        if rows.len() == 1 {
+            return PointedRow::Within(0);
+        }
+
+        if position.y < first.top {
+            return PointedRow::Above;
+        }
+
+        if position.y >= last.top + line_height {
+            return PointedRow::Below;
+        }
+
+        PointedRow::Within(
+            rows.iter()
+                .rposition(|row| position.y >= row.top)
+                .unwrap_or(0),
+        )
+    }
+
+    fn nearest(layout: &TextLayout, rendered: &str, row: &Row, x: Pixels) -> usize {
+        rendered
             .grapheme_indices(true)
             .map(|(index, _)| index)
             .chain([rendered.len()])
+            .filter(|index| *index > row.indices.start && *index <= row.indices.end)
             .filter_map(|index| Some((index, layout.position_for_index(index)?.x)))
-            .min_by_key(|(_, x)| (*x - position.x).abs())
-            .map_or(0, |(index, _)| index);
-
-        Self::full_index(text, &rendered, index)
+            .chain([(row.indices.start, layout.bounds().left())])
+            .min_by_key(|(_, position)| (*position - x).abs())
+            .map_or(row.indices.start, |(index, _)| index)
     }
 
     fn visible_len(text: &str, rendered: &str) -> usize {
@@ -374,9 +465,13 @@ impl Element for SelectableTextElement {
         window.set_focus_handle(&self.state.read(cx).focus_handle, cx);
 
         let layout = styled.layout();
-        let width = layout
-            .position_for_index(layout.len())
-            .map_or(bounds.size.width, |end| end.x - bounds.left());
+        let rows = Self::rows(layout);
+        let width = match rows.len() > 1 {
+            true => bounds.size.width,
+            false => layout
+                .position_for_index(layout.len())
+                .map_or(bounds.size.width, |end| end.x - bounds.left()),
+        };
 
         let margin = Self::hit_margin(width, &layout.text());
 

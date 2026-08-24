@@ -27,6 +27,8 @@ pub struct Input {
 }
 
 impl Input {
+    const READONLY_OPACITY: f32 = 0.55;
+
     pub fn new(state: Entity<InputState>) -> Self {
         Self {
             state,
@@ -35,6 +37,11 @@ impl Input {
             padding: point(px(6.0), px(4.0)),
             readonly: false,
         }
+    }
+
+    pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+        self.placeholder = placeholder.into();
+        self
     }
 
     pub fn readonly(mut self, readonly: bool) -> Self {
@@ -98,7 +105,7 @@ impl RenderOnce for Input {
         });
 
         if self.readonly {
-            return field.into_any_element();
+            return field.opacity(Self::READONLY_OPACITY).into_any_element();
         }
 
         field

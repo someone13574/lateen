@@ -9,23 +9,23 @@ use gpui::{
 
 use crate::agenda::Agenda;
 use crate::button::{Button, ClickHandler, Verdict};
+use crate::calendar_list::CalendarList;
 use crate::clock::{Clock, ClockFormat};
-use crate::import::Import;
 use crate::session::{Outcome, Session};
-use crate::task::{Priority, Repeat, Task, TaskId, TaskKind};
+use crate::task::{Priority, Recurrence, Repeat, Task, TaskId, TaskKind};
 use crate::theme::ActiveTheme;
 
 #[derive(IntoElement)]
 pub struct CommitmentList {
     agenda: Entity<Agenda>,
-    import: Entity<Import>,
+    calendars: Entity<CalendarList>,
 }
 
 impl CommitmentList {
     const EMPTY_BODY: &str = "Add a fixed event, or a flexible one to be scheduled around it.";
 
-    pub fn new(agenda: Entity<Agenda>, import: Entity<Import>) -> Self {
-        Self { agenda, import }
+    pub fn new(agenda: Entity<Agenda>, calendars: Entity<CalendarList>) -> Self {
+        Self { agenda, calendars }
     }
 
     fn row(&self, index: usize, task: &Task, now: i32, cx: &App) -> Stateful<Div> {
@@ -201,11 +201,22 @@ impl CommitmentList {
         }
     }
 
+    fn recurrence_label(recurrence: Recurrence) -> Option<&'static str> {
+        match recurrence {
+            Recurrence::Monthly => Some("each month"),
+            Recurrence::Yearly => Some("each year"),
+            Recurrence::Never | Recurrence::Weekly | Recurrence::Biweekly => None,
+        }
+    }
+
     fn sub(task: &Task) -> String {
         let days = Self::days_label(&task.days);
 
         match &task.kind {
-            TaskKind::Fixed { .. } => task.place.clone().map_or(days, |place| place.to_string()),
+            TaskKind::Fixed { recurrence, .. } => match &task.place {
+                Some(place) => place.to_string(),
+                None => Self::recurrence_label(*recurrence).map_or(days, str::to_string),
+            },
             TaskKind::Flexible(flexible) => match flexible.sessions {
                 Some(sessions) => format!("{days}, {}m sessions", sessions.preferred),
                 None => format!("{days}, in one sitting"),
@@ -528,27 +539,27 @@ impl CommitmentList {
             .child(
                 Button::new("empty-import", "Import calendar")
                     .padding(px(12.0), px(5.0))
-                    .on_click(self.open_import()),
+                    .on_click(self.open_calendars()),
             )
     }
 
     fn add(&self) -> Box<ClickHandler> {
         let agenda = self.agenda.clone();
-        let import = self.import.clone();
+        let calendars = self.calendars.clone();
 
         Box::new(move |_window, cx| {
             agenda.update(cx, |agenda, cx| agenda.add(cx));
-            import.update(cx, |import, cx| import.close(cx));
+            calendars.update(cx, |calendars, cx| calendars.close(cx));
         })
     }
 
-    fn open_import(&self) -> Box<ClickHandler> {
+    fn open_calendars(&self) -> Box<ClickHandler> {
         let agenda = self.agenda.clone();
-        let import = self.import.clone();
+        let calendars = self.calendars.clone();
 
         Box::new(move |_window, cx| {
             agenda.update(cx, Agenda::deselect);
-            import.update(cx, |import, cx| import.toggle(cx));
+            calendars.update(cx, |calendars, cx| calendars.toggle(cx));
         })
     }
 }
@@ -565,7 +576,7 @@ impl RenderOnce for CommitmentList {
             .pt(px(10.0))
             .px(px(12.0))
             .pb(px(16.0))
-            .child(self.import.clone())
+            .child(self.calendars.clone())
             .children(self.pending(cx))
             .children(self.body(now, cx))
     }

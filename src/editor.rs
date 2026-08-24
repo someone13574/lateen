@@ -1,7 +1,6 @@
-use std::env;
 use std::ops::Range;
 
-use chrono::{Days, Weekday};
+use chrono::{Days, TimeDelta, Weekday};
 use gpui::prelude::*;
 use gpui::{
     App, Div, ElementId, Entity, FocusHandle, FontWeight, KeyBinding, Rgba, Role, SharedString,
@@ -11,12 +10,13 @@ use gpui::{
 use crate::agenda::Agenda;
 use crate::block::Block;
 use crate::button::{Button, ClickHandler};
+use crate::calendar_list::CalendarList;
 use crate::clock::{Clock, ClockFormat};
-use crate::import::Import;
 use crate::input::{Entry, Input, InputEvent, InputState};
 use crate::select::{Select, SelectState};
 use crate::selectable_text::SelectableText;
 use crate::session::{Outcome, Session};
+use crate::subscription::SubscriptionId;
 use crate::task::{
     Dates, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
 };
@@ -34,7 +34,7 @@ struct DayField {
 
 pub struct Editor {
     agenda: Entity<Agenda>,
-    import: Entity<Import>,
+    calendars: Entity<CalendarList>,
     task: TaskId,
     title: Entity<InputState>,
     start: Entity<InputState>,
@@ -58,7 +58,6 @@ pub struct Editor {
 
 impl Editor {
     const READONLY_OPACITY: f32 = 0.55;
-    const READONLY: &'static str = "LATEEN_READONLY";
     const DAY_KEY_CONTEXT: &'static str = "DayChip";
 
     pub fn init(cx: &mut App) {
@@ -72,14 +71,14 @@ impl Editor {
 
     pub fn new(
         agenda: Entity<Agenda>,
-        import: Entity<Import>,
+        calendars: Entity<CalendarList>,
         task: TaskId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let editor = Self {
             agenda,
-            import,
+            calendars,
             task,
             title: Self::text_field(Self::set_title, window, cx),
             start: Self::field(Entry::Time, 0, Self::set_start, window, cx),
@@ -108,6 +107,7 @@ impl Editor {
         };
 
         editor.reseed(cx);
+        editor.follow_source(cx);
 
         editor
     }
@@ -182,6 +182,43 @@ impl Editor {
         };
 
         state.update(cx, |state, cx| state.set_content(value, cx));
+    }
+
+    fn follow_source(&self, cx: &mut Context<Self>) {
+        cx.observe(&self.agenda.clone(), |editor, _agenda, cx| {
+            for (state, value) in editor.managed_values(cx) {
+                if state.read(cx).content() != &value {
+                    state.update(cx, |state, cx| state.set_content(value, cx));
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn managed_values(&self, cx: &App) -> Vec<(Entity<InputState>, SharedString)> {
+        let Some(task) = self.agenda.read(cx).task(self.task) else {
+            return Vec::new();
+        };
+        let TaskKind::Fixed {
+            start, duration, ..
+        } = &task.kind
+        else {
+            return Vec::new();
+        };
+
+        if task.source.is_none() {
+            return Vec::new();
+        }
+
+        vec![
+            (self.title.clone(), task.title.clone()),
+            (
+                self.start.clone(),
+                cx.global::<ClockFormat>().time_label(*start).into(),
+            ),
+            (self.duration.clone(), duration.to_string().into()),
+            (self.place.clone(), task.place.clone().unwrap_or_default()),
+        ]
     }
 
     fn reseed(&self, cx: &mut Context<Self>) {
@@ -340,6 +377,8 @@ impl Editor {
             Recurrence::Never => 0,
             Recurrence::Weekly => 1,
             Recurrence::Biweekly => 2,
+            Recurrence::Monthly => 3,
+            Recurrence::Yearly => 4,
         }
     }
 
@@ -486,47 +525,39 @@ impl Editor {
         )
     }
 
-    fn readonly() -> bool {
-        env::var_os(Self::READONLY).is_some()
-    }
+    fn provenance(&self, subscription: SubscriptionId, cx: &App) -> Div {
+        let name = self
+            .agenda
+            .read(cx)
+            .subscriptions()
+            .iter()
+            .find(|other| other.id == subscription)
+            .map(|subscription| subscription.name.clone())
+            .unwrap_or_default();
 
-    fn provenance(cx: &App) -> Div {
-        div()
-            .flex_1()
-            .min_w_0()
-            .child(
-                div()
-                    .text_size(px(11.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().heading_fg)
-                    .child(Text::new(
-                        "managed-by".into(),
-                        "Managed by University calendar".into(),
-                    )),
-            )
-            .child(
-                div()
-                    .mt(px(2.0))
-                    .text_size(px(10.5))
-                    .text_color(cx.theme().dim_fg)
-                    .child(Text::new(
-                        "managed-note".into(),
-                        "Edit it there and it will update here.".into(),
-                    )),
-            )
+        div().flex_1().min_w_0().child(
+            div()
+                .text_size(px(11.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().heading_fg)
+                .child(Text::new(
+                    "managed-by".into(),
+                    format!("Managed by {name}").into(),
+                )),
+        )
     }
 
     fn open_calendars(&self) -> Box<ClickHandler> {
         let agenda = self.agenda.clone();
-        let import = self.import.clone();
+        let calendars = self.calendars.clone();
 
         Box::new(move |_window, cx| {
             agenda.update(cx, Agenda::deselect);
-            import.update(cx, |import, cx| import.open(cx));
+            calendars.update(cx, |calendars, cx| calendars.open(cx));
         })
     }
 
-    fn banner(&self, cx: &App) -> Div {
+    fn banner(&self, subscription: SubscriptionId, cx: &App) -> Div {
         div()
             .flex()
             .items_center()
@@ -539,7 +570,7 @@ impl Editor {
             .border_color(cx.theme().button_border)
             .bg(cx.theme().card_bg)
             .text_color(cx.theme().muted_fg)
-            .child(Self::provenance(cx))
+            .child(self.provenance(subscription, cx))
             .child(
                 Button::new("view-calendars", "View calendars")
                     .small()
@@ -586,6 +617,7 @@ impl Editor {
             .flex_1()
             .justify_center()
             .when(!readonly, |toggle| toggle.cursor_pointer())
+            .when(readonly, |toggle| toggle.opacity(Self::READONLY_OPACITY))
             .border(px(1.0))
             .border_color(if selected {
                 theme.chip_border
@@ -1022,19 +1054,19 @@ impl Editor {
             ))
     }
 
-    fn transition_time(&self, readonly: bool, cx: &App) -> Div {
+    fn transition_time(&self, cx: &App) -> Div {
         div().child(Self::heading("Transition time", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
                 .child(Self::labeled(
                     "Start (min)",
-                    Input::new(self.transition_start.clone()).readonly(readonly),
+                    Input::new(self.transition_start.clone()),
                     cx,
                 ))
                 .child(Self::labeled(
                     "End (min)",
-                    Input::new(self.transition_end.clone()).readonly(readonly),
+                    Input::new(self.transition_end.clone()),
                     cx,
                 )),
         )
@@ -1066,6 +1098,7 @@ impl Editor {
         open_ended: "Forever",
         first: 0,
     };
+    const DAY_CHOICES: i32 = 10;
 
     fn dates(&self, dates: Dates, readonly: bool, cx: &App) -> Stateful<Div> {
         div()
@@ -1112,31 +1145,46 @@ impl Editor {
         let task = self.task;
         let first = field.first;
 
-        Select::new(
-            field.id,
-            field.label,
-            state.clone(),
-            Self::day_options(field, cx),
-        )
-        .selected(
-            day.filter(|day| *day >= first)
-                .map_or(0, |day| (day - first) as usize + 1),
-        )
-        .readonly(readonly)
-        .on_select(move |index, _window, cx| {
-            agenda.update(cx, |agenda, cx| {
-                let day = (index > 0).then(|| index as i32 - 1 + first);
+        let choices = first..first + Self::DAY_CHOICES;
+        let mut options = Self::day_options(field, cx);
+        let listed = day.filter(|day| choices.contains(day));
+        let selected = match (day, listed) {
+            (None, _) => 0,
+            (Some(_), Some(day)) => (day - first) as usize + 1,
+            (Some(day), None) => {
+                options.push(Self::day_label(day, cx));
 
-                agenda.edit(task, |task| set(task, day), cx)
-            });
-        })
+                options.len() - 1
+            }
+        };
+
+        Select::new(field.id, field.label, state.clone(), options)
+            .selected(selected)
+            .readonly(readonly)
+            .on_select(move |index, _window, cx| {
+                let day = match index {
+                    0 => None,
+                    index if index <= Self::DAY_CHOICES as usize => Some(index as i32 - 1 + first),
+                    _ => return,
+                };
+
+                agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| set(task, day), cx)
+                });
+            })
+    }
+
+    fn day_label(day: i32, cx: &App) -> SharedString {
+        let date = cx.global::<Clock>().now().date_naive() + TimeDelta::days(i64::from(day));
+
+        date.format("%-d %b %Y").to_string().into()
     }
 
     fn day_options(field: DayField, cx: &App) -> Vec<SharedString> {
         let today = cx.global::<Clock>().now().date_naive();
 
         std::iter::once(SharedString::from(field.open_ended))
-            .chain((field.first..field.first + 10).map(|day| {
+            .chain((field.first..field.first + Self::DAY_CHOICES).map(|day| {
                 let date = (today + Days::new(day as u64)).format("%a %-d");
 
                 match day {
@@ -1175,9 +1223,13 @@ impl Editor {
     fn recurrences(&self, recurrence: Recurrence, readonly: bool) -> Select {
         let agenda = self.agenda.clone();
         let task = self.task;
-        let options = ["Doesn't repeat", "Weekly", "Biweekly"]
+        let mut options = ["Doesn't repeat", "Weekly", "Biweekly"]
             .map(SharedString::from)
             .to_vec();
+
+        if readonly {
+            options.extend(["Monthly".into(), "Yearly".into()]);
+        }
 
         Select::new("recurrence", "Repeats", self.repeat.clone(), options)
             .selected(Self::recurrence_index(recurrence))
@@ -1237,7 +1289,7 @@ impl Editor {
             )))
             .child(div().mt(px(8.0)).child(Self::labeled(
                 "Overrun allowance (%)",
-                Input::new(self.overrun.clone()).readonly(readonly),
+                Input::new(self.overrun.clone()),
                 cx,
             )))
     }
@@ -1260,7 +1312,7 @@ impl Editor {
             ))
     }
 
-    fn priorities(&self, priority: Priority, readonly: bool) -> Select {
+    fn priorities(&self, priority: Priority) -> Select {
         let agenda = self.agenda.clone();
         let task = self.task;
         let options = ["Lowest", "Low", "Normal", "High", "Highest"]
@@ -1269,7 +1321,6 @@ impl Editor {
 
         Select::new("priority", "Priority", self.priority.clone(), options)
             .selected(priority as usize)
-            .readonly(readonly)
             .on_select(move |index, _window, cx| {
                 agenda.update(cx, |agenda, cx| {
                     agenda.edit(task, |task| task.priority = Self::ranked(index), cx)
@@ -1414,11 +1465,10 @@ impl Render for Editor {
             TaskKind::Fixed { recurrence, .. } => recurrence,
             TaskKind::Flexible(_) => Recurrence::Weekly,
         };
-        let one_off = !task.repeats();
         let editor = cx.entity();
-        let readonly = Self::readonly();
+        let managed = task.source.as_ref().map(|source| source.subscription);
+        let readonly = managed.is_some();
         let form = div()
-            .when(readonly, |form| form.opacity(Self::READONLY_OPACITY))
             .child(
                 div().font_weight(FontWeight::SEMIBOLD).child(
                     Input::new(self.title.clone())
@@ -1429,16 +1479,19 @@ impl Render for Editor {
             )
             .child(Self::kinds(fixed, readonly, &editor, cx))
             .child(Self::heading("Priority", cx))
-            .child(self.priorities(priority, readonly))
+            .child(self.priorities(priority))
             .children(fixed.then(|| self.when(recurrence, readonly, cx)))
             .children((!fixed).then(|| self.amount(repeat, readonly, cx)))
             .child(self.dates(task.dates, readonly, cx))
             .children((!fixed).then(|| self.splitting(splittable, readonly, &editor, cx)))
             .children((!fixed).then(|| self.allowed_time_range(readonly, cx)))
-            .children((!one_off).then(|| self.days(&days, readonly, window, cx)))
-            .child(self.transition_time(readonly, cx));
+            .children(
+                task.repeats_by_weekday()
+                    .then(|| self.days(&days, readonly, window, cx)),
+            )
+            .child(self.transition_time(cx));
 
-        page.children(readonly.then(|| self.banner(cx)))
+        page.children(managed.map(|subscription| self.banner(subscription, cx)))
             .child(form)
             .children(
                 (!fixed)
