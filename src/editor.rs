@@ -40,13 +40,13 @@ pub struct Editor {
     place: Entity<InputState>,
     overrun: Entity<InputState>,
     total: Entity<InputState>,
-    opens: Entity<InputState>,
-    closes: Entity<InputState>,
+    allowed_start: Entity<InputState>,
+    allowed_end: Entity<InputState>,
     preferred: Entity<InputState>,
     shortest: Entity<InputState>,
     longest: Entity<InputState>,
-    prep: Entity<InputState>,
-    cleanup: Entity<InputState>,
+    transition_start: Entity<InputState>,
+    transition_end: Entity<InputState>,
     priority: Entity<SelectState>,
     repeat: Entity<SelectState>,
     earliest: Entity<SelectState>,
@@ -74,13 +74,19 @@ impl Editor {
             place: Self::text_field(Self::set_place, window, cx),
             overrun: Self::field(Entry::Number, 0, Self::set_overrun, window, cx),
             total: Self::field(Entry::Duration, 1, Self::set_total, window, cx),
-            opens: Self::field(Entry::Time, 0, Self::set_opens, window, cx),
-            closes: Self::field(Entry::Time, 0, Self::set_closes, window, cx),
+            allowed_start: Self::field(Entry::Time, 0, Self::set_allowed_start, window, cx),
+            allowed_end: Self::field(Entry::Time, 0, Self::set_allowed_end, window, cx),
             preferred: Self::field(Entry::Duration, 1, Self::set_preferred, window, cx),
             shortest: Self::field(Entry::Duration, 1, Self::set_shortest, window, cx),
             longest: Self::field(Entry::Duration, 1, Self::set_longest, window, cx),
-            prep: Self::field(Entry::Duration, 0, Self::set_prep, window, cx),
-            cleanup: Self::field(Entry::Duration, 0, Self::set_cleanup, window, cx),
+            transition_start: Self::field(
+                Entry::Duration,
+                0,
+                Self::set_transition_start,
+                window,
+                cx,
+            ),
+            transition_end: Self::field(Entry::Duration, 0, Self::set_transition_end, window, cx),
             priority: cx.new(|cx| SelectState::new(window, cx)),
             repeat: cx.new(|cx| SelectState::new(window, cx)),
             earliest: cx.new(|cx| SelectState::new(window, cx)),
@@ -177,8 +183,8 @@ impl Editor {
         let clock = *cx.global::<ClockFormat>();
         let mut values = vec![
             (self.title.clone(), task.title.to_string()),
-            (self.prep.clone(), task.prep.to_string()),
-            (self.cleanup.clone(), task.cleanup.to_string()),
+            (self.transition_start.clone(), task.prep.to_string()),
+            (self.transition_end.clone(), task.cleanup.to_string()),
         ];
 
         match &task.kind {
@@ -209,8 +215,14 @@ impl Editor {
     ) -> Vec<(Entity<InputState>, String)> {
         let mut values = vec![
             (self.total.clone(), flexible.total.to_string()),
-            (self.opens.clone(), clock.time_label(flexible.window.start)),
-            (self.closes.clone(), clock.time_label(flexible.window.end)),
+            (
+                self.allowed_start.clone(),
+                clock.time_label(flexible.window.start),
+            ),
+            (
+                self.allowed_end.clone(),
+                clock.time_label(flexible.window.end),
+            ),
         ];
 
         if let Some(sessions) = flexible.sessions {
@@ -362,11 +374,11 @@ impl Editor {
         task.place = (!text.trim().is_empty()).then(|| text.to_string().into());
     }
 
-    fn set_prep(task: &mut Task, minutes: i32) {
+    fn set_transition_start(task: &mut Task, minutes: i32) {
         task.prep = minutes;
     }
 
-    fn set_cleanup(task: &mut Task, minutes: i32) {
+    fn set_transition_end(task: &mut Task, minutes: i32) {
         task.cleanup = minutes;
     }
 
@@ -397,13 +409,13 @@ impl Editor {
         }
     }
 
-    fn set_opens(task: &mut Task, minutes: i32) {
+    fn set_allowed_start(task: &mut Task, minutes: i32) {
         if let Some(flexible) = Self::flexible(task) {
             flexible.window.start = minutes;
         }
     }
 
-    fn set_closes(task: &mut Task, minutes: i32) {
+    fn set_allowed_end(task: &mut Task, minutes: i32) {
         if let Some(flexible) = Self::flexible(task) {
             flexible.window.end = minutes;
         }
@@ -632,11 +644,6 @@ impl Editor {
         Some(
             div()
                 .child(Self::sessions_heading(
-                    if splittable {
-                        "Sessions"
-                    } else {
-                        "When it lands"
-                    },
                     agenda.progress(task, now).filter(|_| splittable),
                     cx,
                 ))
@@ -863,7 +870,7 @@ impl Editor {
             )
     }
 
-    fn sessions_heading(label: &'static str, progress: Option<(i32, i32)>, cx: &App) -> Div {
+    fn sessions_heading(progress: Option<(i32, i32)>, cx: &App) -> Div {
         let theme = *cx.theme();
         let progress = progress.map(|(done, total)| {
             format!(
@@ -886,7 +893,7 @@ impl Editor {
                     .text_size(px(11.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.heading_fg)
-                    .child(Text::new(label.into(), label.into())),
+                    .child(Text::new("sessions-heading".into(), "Sessions".into())),
             )
             .children(progress.map(|progress| {
                 div()
@@ -936,7 +943,7 @@ impl Editor {
         div()
             .id("splittable")
             .role(Role::CheckBox)
-            .aria_label("Can be broken up")
+            .aria_label("Can be split")
             .flex()
             .items_center()
             .gap(px(7.0))
@@ -948,7 +955,7 @@ impl Editor {
                 })
             })
             .child(Self::checkbox(checked, cx))
-            .child(Text::new_inaccessible("Can be broken up".into()))
+            .child(Text::new_inaccessible("Can be split".into()))
     }
 
     fn checkbox(checked: bool, cx: &App) -> Div {
@@ -1001,26 +1008,26 @@ impl Editor {
             ))
     }
 
-    fn either_side(&self, readonly: bool, cx: &App) -> Div {
-        div().child(Self::heading("Time either side", cx)).child(
+    fn transition_time(&self, readonly: bool, cx: &App) -> Div {
+        div().child(Self::heading("Transition time", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
                 .child(Self::labeled(
-                    "Prep (min)",
-                    Input::new(self.prep.clone()).readonly(readonly),
+                    "Start (min)",
+                    Input::new(self.transition_start.clone()).readonly(readonly),
                     cx,
                 ))
                 .child(Self::labeled(
-                    "Wrap up (min)",
-                    Input::new(self.cleanup.clone()).readonly(readonly),
+                    "End (min)",
+                    Input::new(self.transition_end.clone()).readonly(readonly),
                     cx,
                 )),
         )
     }
 
-    fn how_much(&self, repeat: Repeat, readonly: bool, cx: &App) -> Div {
-        div().child(Self::heading("How much", cx)).child(
+    fn amount(&self, repeat: Repeat, readonly: bool, cx: &App) -> Div {
+        div().child(Self::heading("Amount", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
@@ -1168,19 +1175,19 @@ impl Editor {
             })
     }
 
-    fn allowed_hours(&self, readonly: bool, cx: &App) -> Div {
-        div().child(Self::heading("Allowed hours", cx)).child(
+    fn allowed_time_range(&self, readonly: bool, cx: &App) -> Div {
+        div().child(Self::heading("Allowed time range", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
                 .child(Self::labeled(
-                    "Not before",
-                    Input::new(self.opens.clone()).readonly(readonly),
+                    "Start",
+                    Input::new(self.allowed_start.clone()).readonly(readonly),
                     cx,
                 ))
                 .child(Self::labeled(
-                    "Finished by",
-                    Input::new(self.closes.clone()).readonly(readonly),
+                    "End",
+                    Input::new(self.allowed_end.clone()).readonly(readonly),
                     cx,
                 )),
         )
@@ -1194,12 +1201,12 @@ impl Editor {
                     .flex()
                     .gap(px(8.0))
                     .child(Self::labeled(
-                        "Starts",
+                        "Start",
                         Input::new(self.start.clone()).readonly(readonly),
                         cx,
                     ))
                     .child(Self::labeled(
-                        "Runs for (min)",
+                        "Duration (min)",
                         Input::new(self.duration.clone()).readonly(readonly),
                         cx,
                     ))
@@ -1366,12 +1373,12 @@ impl Render for Editor {
             .child(Self::heading("Priority", cx))
             .child(self.priorities(priority, readonly))
             .children(fixed.then(|| self.when(recurrence, readonly, cx)))
-            .children((!fixed).then(|| self.how_much(repeat, readonly, cx)))
+            .children((!fixed).then(|| self.amount(repeat, readonly, cx)))
             .child(self.dates(task.dates, readonly, cx))
             .children((!fixed).then(|| self.splitting(splittable, readonly, &editor, cx)))
-            .children((!fixed).then(|| self.allowed_hours(readonly, cx)))
+            .children((!fixed).then(|| self.allowed_time_range(readonly, cx)))
             .children((!one_off).then(|| self.days(&days, readonly, cx)))
-            .child(self.either_side(readonly, cx));
+            .child(self.transition_time(readonly, cx));
 
         page.children(readonly.then(|| self.banner(cx)))
             .child(form)

@@ -389,21 +389,18 @@ impl CommitmentList {
 
     fn pending(&self, cx: &App) -> Vec<Div> {
         let state = self.agenda.read(cx);
-        let (earlier, today): (Vec<_>, Vec<_>) = state
+        let (old, today): (Vec<_>, Vec<_>) = state
             .unconfirmed()
             .into_iter()
             .enumerate()
             .partition(|(_, session)| session.day() < 0);
 
-        [
-            ("Today", today, 0..i32::MAX),
-            ("Earlier", earlier, i32::MIN..0),
-        ]
-        .into_iter()
-        .enumerate()
-        .filter(|(_, (_, rows, _))| !rows.is_empty())
-        .map(|(index, (label, rows, days))| self.pending_group(index, label, &rows, days, cx))
-        .collect()
+        [("Today", today, 0..i32::MAX), ("Old", old, i32::MIN..0)]
+            .into_iter()
+            .enumerate()
+            .filter(|(_, (_, rows, _))| !rows.is_empty())
+            .map(|(index, (label, rows, days))| self.pending_group(index, label, &rows, days, cx))
+            .collect()
     }
 
     fn pending_group(
