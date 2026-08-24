@@ -10,6 +10,7 @@ use crate::bottom_bar::BottomBar;
 use crate::button::ClickHandler;
 use crate::calendar::Calendar;
 use crate::clock::{Clock, ClockFormat};
+use crate::editor::Editor;
 use crate::import::Import;
 use crate::input::InputState;
 use crate::notifier::Notifier;
@@ -121,6 +122,7 @@ fn main() {
         Assets::load_fonts(cx).expect("failed to load embedded fonts");
         Clock::init(cx);
         ClockFormat::init(cx);
+        Editor::init(cx);
         InputState::init(cx);
         SelectState::init(cx);
         TextSelection::init(cx);

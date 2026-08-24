@@ -4,8 +4,8 @@ use std::ops::Range;
 use chrono::{Days, Weekday};
 use gpui::prelude::*;
 use gpui::{
-    App, Div, ElementId, Entity, FontWeight, Rgba, Role, SharedString, Stateful, Text, Window, div,
-    px,
+    App, Div, ElementId, Entity, FocusHandle, FontWeight, KeyBinding, Rgba, Role, SharedString,
+    Stateful, Text, Window, actions, div, px,
 };
 
 use crate::agenda::Agenda;
@@ -21,6 +21,8 @@ use crate::task::{
     Dates, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
 };
 use crate::theme::ActiveTheme;
+
+actions!(day_chip, [FocusNext, FocusPrevious, Toggle]);
 
 #[derive(Clone, Copy)]
 struct DayField {
@@ -51,11 +53,22 @@ pub struct Editor {
     repeat: Entity<SelectState>,
     earliest: Entity<SelectState>,
     deadline: Entity<SelectState>,
+    days: [FocusHandle; 7],
 }
 
 impl Editor {
     const READONLY_OPACITY: f32 = 0.55;
     const READONLY: &'static str = "LATEEN_READONLY";
+    const DAY_KEY_CONTEXT: &'static str = "DayChip";
+
+    pub fn init(cx: &mut App) {
+        cx.bind_keys([
+            KeyBinding::new("enter", Toggle, Some(Self::DAY_KEY_CONTEXT)),
+            KeyBinding::new("space", Toggle, Some(Self::DAY_KEY_CONTEXT)),
+            KeyBinding::new("tab", FocusNext, Some(Self::DAY_KEY_CONTEXT)),
+            KeyBinding::new("shift-tab", FocusPrevious, Some(Self::DAY_KEY_CONTEXT)),
+        ]);
+    }
 
     pub fn new(
         agenda: Entity<Agenda>,
@@ -91,6 +104,7 @@ impl Editor {
             repeat: cx.new(|cx| SelectState::new(window, cx)),
             earliest: cx.new(|cx| SelectState::new(window, cx)),
             deadline: cx.new(|cx| SelectState::new(window, cx)),
+            days: std::array::from_fn(|_| cx.focus_handle().tab_stop(true)),
         };
 
         editor.reseed(cx);
@@ -1228,7 +1242,7 @@ impl Editor {
             )))
     }
 
-    fn days(&self, days: &[Weekday], readonly: bool, cx: &App) -> Div {
+    fn days(&self, days: &[Weekday], readonly: bool, window: &Window, cx: &App) -> Div {
         let week = [
             Weekday::Sun,
             Weekday::Mon,
@@ -1239,12 +1253,11 @@ impl Editor {
             Weekday::Sat,
         ];
 
-        div().child(Self::heading("Days", cx)).child(
-            div()
-                .flex()
-                .gap(px(3.0))
-                .children(week.map(|day| self.day_chip(day, days.contains(&day), readonly, cx))),
-        )
+        div()
+            .child(Self::heading("Days", cx))
+            .child(div().flex().gap(px(3.0)).children(
+                week.map(|day| self.day_chip(day, days.contains(&day), readonly, window, cx)),
+            ))
     }
 
     fn priorities(&self, priority: Priority, readonly: bool) -> Select {
@@ -1274,9 +1287,58 @@ impl Editor {
         }
     }
 
-    fn day_chip(&self, day: Weekday, selected: bool, readonly: bool, cx: &App) -> Stateful<Div> {
+    fn day_toggler(&self, day: Weekday) -> impl Fn(&mut App) + 'static {
         let agenda = self.agenda.clone();
         let task = self.task;
+
+        move |cx| {
+            agenda.update(cx, |agenda, cx| {
+                agenda.edit(task, |task| Self::toggle_day(task, day), cx)
+            });
+        }
+    }
+
+    fn interactive_day(
+        &self,
+        chip: Stateful<Div>,
+        day: Weekday,
+        window: &Window,
+        cx: &App,
+    ) -> Stateful<Div> {
+        let focus_handle = self.days[day.num_days_from_sunday() as usize].clone();
+        let toggle = self.day_toggler(day);
+        let click = self.day_toggler(day);
+
+        chip.relative()
+            .key_context(Self::DAY_KEY_CONTEXT)
+            .track_focus(&focus_handle)
+            .on_action(move |_: &Toggle, _window, cx| toggle(cx))
+            .on_action(|_: &FocusNext, window: &mut Window, cx: &mut App| window.focus_next(cx))
+            .on_action(|_: &FocusPrevious, window: &mut Window, cx: &mut App| window.focus_prev(cx))
+            .on_click(move |_event, _window, cx| click(cx))
+            .when(focus_handle.is_focused(window), |chip| {
+                chip.border_color(cx.theme().input_ring)
+                    .child(Self::ring(cx.theme().input_ring))
+            })
+    }
+
+    fn ring(color: Rgba) -> Div {
+        div()
+            .absolute()
+            .inset(px(-1.0))
+            .border(px(2.0))
+            .rounded(px(5.0))
+            .border_color(color)
+    }
+
+    fn day_chip(
+        &self,
+        day: Weekday,
+        selected: bool,
+        readonly: bool,
+        window: &Window,
+        cx: &App,
+    ) -> Stateful<Div> {
         let index = day.num_days_from_sunday() as usize;
 
         Self::toggle(
@@ -1291,11 +1353,7 @@ impl Editor {
         .py(px(4.0))
         .text_size(px(10.5))
         .when(!readonly, |chip| {
-            chip.on_click(move |_event, _window, cx| {
-                agenda.update(cx, |agenda, cx| {
-                    agenda.edit(task, |task| Self::toggle_day(task, day), cx)
-                });
-            })
+            self.interactive_day(chip, day, window, cx)
         })
     }
 
@@ -1331,7 +1389,7 @@ impl Editor {
 }
 
 impl Render for Editor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = div()
             .id("editor")
             .flex_1()
@@ -1377,7 +1435,7 @@ impl Render for Editor {
             .child(self.dates(task.dates, readonly, cx))
             .children((!fixed).then(|| self.splitting(splittable, readonly, &editor, cx)))
             .children((!fixed).then(|| self.allowed_time_range(readonly, cx)))
-            .children((!one_off).then(|| self.days(&days, readonly, cx)))
+            .children((!one_off).then(|| self.days(&days, readonly, window, cx)))
             .child(self.transition_time(readonly, cx));
 
         page.children(readonly.then(|| self.banner(cx)))
