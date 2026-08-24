@@ -313,10 +313,15 @@ impl Upcoming {
     }
 
     fn duration_label(minutes: i32) -> String {
-        match (minutes / 60, minutes % 60) {
-            (0, minutes) => format!("{minutes}m"),
-            (hours, 0) => format!("{hours}h"),
-            (hours, minutes) => format!("{hours}h {minutes}m"),
+        let (hours, minutes) = (minutes / 60, minutes % 60);
+        let (days, hours) = (hours / 24, hours % 24);
+
+        match (days, hours, minutes) {
+            (0, 0, minutes) => format!("{minutes}m"),
+            (0, hours, 0) => format!("{hours}h"),
+            (0, hours, minutes) => format!("{hours}h {minutes}m"),
+            (days, 0, _) => format!("{days}d"),
+            (days, hours, _) => format!("{days}d {hours}h"),
         }
     }
 }
