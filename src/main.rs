@@ -145,7 +145,7 @@ fn main() {
             Theme::init(window, cx);
 
             let agenda = cx.new(Agenda::new);
-            let import = cx.new(|_cx| Import::default());
+            let import = cx.new(|cx| Import::new(window, cx));
 
             Notifier::init(agenda.clone(), cx);
 

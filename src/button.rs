@@ -35,6 +35,7 @@ pub struct Button {
     filled: bool,
     bare: bool,
     stretch: bool,
+    centered: bool,
     chip: Option<(bool, Rgba)>,
     size: Option<Size<Pixels>>,
     padding: Option<Point<Pixels>>,
@@ -54,6 +55,7 @@ impl Button {
             filled: false,
             bare: false,
             stretch: false,
+            centered: false,
             chip: None,
             size: None,
             padding: None,
@@ -98,6 +100,11 @@ impl Button {
 
     pub fn stretch(mut self) -> Self {
         self.stretch = true;
+        self
+    }
+
+    pub fn centered(mut self) -> Self {
+        self.centered = true;
         self
     }
 
@@ -147,8 +154,11 @@ impl RenderOnce for Button {
             .aria_label(self.label.clone())
             .flex()
             .items_center()
-            .when(self.stretch, |button| button.flex_1().justify_center())
+            .when(self.stretch, |button| button.flex_1())
             .when(!self.stretch, |button| button.flex_none())
+            .when(self.stretch || self.centered, |button| {
+                button.justify_center()
+            })
             .px(padding.x)
             .py(padding.y)
             .text_size(text_size)

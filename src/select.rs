@@ -64,6 +64,7 @@ pub struct Select {
     state: Entity<SelectState>,
     options: Vec<SharedString>,
     selected: usize,
+    readonly: bool,
     on_select: Option<Rc<SelectHandler>>,
 }
 
@@ -80,12 +81,18 @@ impl Select {
             state,
             options,
             selected: 0,
+            readonly: false,
             on_select: None,
         }
     }
 
     pub fn selected(mut self, selected: usize) -> Self {
         self.selected = selected;
+        self
+    }
+
+    pub fn readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
         self
     }
 
@@ -195,7 +202,7 @@ impl Select {
             .absolute()
             .top(px(2.0))
             .bottom_0()
-            .right(px(4.0))
+            .right(px(9.0))
             .flex()
             .items_center()
             .child(
@@ -211,9 +218,9 @@ impl Select {
     fn ring(color: Rgba) -> Div {
         div()
             .absolute()
-            .inset(px(1.0))
+            .inset(px(-1.0))
             .border(px(2.0))
-            .rounded(px(3.0))
+            .rounded(px(4.0))
             .border_color(color)
     }
 
@@ -236,22 +243,21 @@ impl Select {
             .py(px(4.0))
             .rounded(px(4.0))
             .border(px(1.0))
-            .border_color(if focused {
-                theme.input_focus_border
-            } else {
-                theme.input_border
-            })
+            .border_color(theme.input_border)
             .bg(theme.card_bg)
             .text_size(px(12.0))
             .text_color(theme.fg)
-            .cursor_pointer()
-            .on_click(move |_event, window, cx| {
-                cx.stop_propagation();
-                window.focus(&focus_handle, cx);
-                state.update(cx, |state, cx| {
-                    state.open = !state.open;
-                    cx.notify();
-                });
+            .when(!self.readonly, |trigger| {
+                trigger
+                    .cursor_pointer()
+                    .on_click(move |_event, window, cx| {
+                        cx.stop_propagation();
+                        window.focus(&focus_handle, cx);
+                        state.update(cx, |state, cx| {
+                            state.open = !state.open;
+                            cx.notify();
+                        });
+                    })
             })
             .child(Text::new_inaccessible(
                 self.options.get(self.selected).cloned().unwrap_or_default(),
@@ -278,15 +284,18 @@ impl Select {
 impl RenderOnce for Select {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let focus_handle = self.state.read(cx).focus_handle.clone();
-        let focused = focus_handle.is_focused(window);
-        let open = self.state.read(cx).open;
+        let focused = focus_handle.is_focused(window) && !self.readonly;
+        let open = self.state.read(cx).open && !self.readonly;
         let dismiss = self.state.clone();
+        let field = div().relative().w_full().child(self.trigger(focused, cx));
 
-        div()
+        if self.readonly {
+            return field.into_any_element();
+        }
+
+        field
             .key_context(SelectState::KEY_CONTEXT)
             .track_focus(&focus_handle)
-            .relative()
-            .w_full()
             .on_action(Self::flip(&self.state))
             .on_action(Self::dismiss(&self.state))
             .on_action(self.step::<Next>(1))
@@ -294,9 +303,9 @@ impl RenderOnce for Select {
             .on_action(|_: &FocusNext, window: &mut Window, cx: &mut App| window.focus_next(cx))
             .on_action(|_: &FocusPrevious, window: &mut Window, cx: &mut App| window.focus_prev(cx))
             .on_mouse_down_out(move |_event, _window, cx| Self::close(&dismiss, cx))
-            .child(self.trigger(focused, cx))
             .when(open, |select| {
                 select.child(deferred(self.menu(cx)).with_priority(1))
             })
+            .into_any_element()
     }
 }

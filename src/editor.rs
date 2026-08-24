@@ -1,3 +1,4 @@
+use std::env;
 use std::ops::Range;
 
 use chrono::{Days, Weekday};
@@ -11,6 +12,7 @@ use crate::agenda::Agenda;
 use crate::block::Block;
 use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
+use crate::import::Import;
 use crate::input::{Entry, Input, InputEvent, InputState};
 use crate::select::{Select, SelectState};
 use crate::selectable_text::SelectableText;
@@ -30,6 +32,7 @@ struct DayField {
 
 pub struct Editor {
     agenda: Entity<Agenda>,
+    import: Entity<Import>,
     task: TaskId,
     title: Entity<InputState>,
     start: Entity<InputState>,
@@ -51,14 +54,19 @@ pub struct Editor {
 }
 
 impl Editor {
+    const READONLY_OPACITY: f32 = 0.55;
+    const READONLY: &'static str = "LATEEN_READONLY";
+
     pub fn new(
         agenda: Entity<Agenda>,
+        import: Entity<Import>,
         task: TaskId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let editor = Self {
             agenda,
+            import,
             task,
             title: Self::text_field(Self::set_title, window, cx),
             start: Self::field(Entry::Time, 0, Self::set_start, window, cx),
@@ -452,6 +460,68 @@ impl Editor {
         )
     }
 
+    fn readonly() -> bool {
+        env::var_os(Self::READONLY).is_some()
+    }
+
+    fn provenance(cx: &App) -> Div {
+        div()
+            .flex_1()
+            .min_w_0()
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(cx.theme().heading_fg)
+                    .child(Text::new(
+                        "managed-by".into(),
+                        "Managed by University calendar".into(),
+                    )),
+            )
+            .child(
+                div()
+                    .mt(px(2.0))
+                    .text_size(px(10.5))
+                    .text_color(cx.theme().dim_fg)
+                    .child(Text::new(
+                        "managed-note".into(),
+                        "Edit it there and it will update here.".into(),
+                    )),
+            )
+    }
+
+    fn open_calendars(&self) -> Box<ClickHandler> {
+        let agenda = self.agenda.clone();
+        let import = self.import.clone();
+
+        Box::new(move |_window, cx| {
+            agenda.update(cx, Agenda::deselect);
+            import.update(cx, |import, cx| import.open(cx));
+        })
+    }
+
+    fn banner(&self, cx: &App) -> Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .mb(px(9.0))
+            .px(px(10.0))
+            .py(px(8.0))
+            .rounded(px(5.0))
+            .border(px(1.0))
+            .border_color(cx.theme().button_border)
+            .bg(cx.theme().card_bg)
+            .text_color(cx.theme().muted_fg)
+            .child(Self::provenance(cx))
+            .child(
+                Button::new("view-calendars", "View calendars")
+                    .small()
+                    .padding(px(8.0), px(3.0))
+                    .on_click(self.open_calendars()),
+            )
+    }
+
     fn heading(label: &'static str, cx: &App) -> Div {
         div()
             .mt(px(15.0))
@@ -476,6 +546,7 @@ impl Editor {
         label: SharedString,
         selected: bool,
         unselected_fg: Rgba,
+        readonly: bool,
         cx: &App,
     ) -> Stateful<Div> {
         let theme = *cx.theme();
@@ -488,7 +559,7 @@ impl Editor {
             .flex()
             .flex_1()
             .justify_center()
-            .cursor_pointer()
+            .when(!readonly, |toggle| toggle.cursor_pointer())
             .border(px(1.0))
             .border_color(if selected {
                 theme.chip_border
@@ -508,7 +579,7 @@ impl Editor {
             .child(Text::new_inaccessible(label))
     }
 
-    fn kinds(fixed: bool, editor: &Entity<Self>, cx: &App) -> Div {
+    fn kinds(fixed: bool, readonly: bool, editor: &Entity<Self>, cx: &App) -> Div {
         div()
             .flex()
             .gap(px(4.0))
@@ -518,6 +589,7 @@ impl Editor {
                 "Fixed time",
                 true,
                 fixed,
+                readonly,
                 editor,
                 cx,
             ))
@@ -526,6 +598,7 @@ impl Editor {
                 "Flexible",
                 false,
                 fixed,
+                readonly,
                 editor,
                 cx,
             ))
@@ -850,14 +923,14 @@ impl Editor {
             .child(Text::new_inaccessible("Delete".into()))
     }
 
-    fn splitting(&self, splittable: bool, editor: &Entity<Self>, cx: &App) -> Div {
+    fn splitting(&self, splittable: bool, readonly: bool, editor: &Entity<Self>, cx: &App) -> Div {
         div()
             .child(Self::heading("Splitting", cx))
-            .child(Self::splittable(splittable, editor, cx))
-            .children(splittable.then(|| self.sessions_row(cx)))
+            .child(Self::splittable(splittable, readonly, editor, cx))
+            .children(splittable.then(|| self.sessions_row(readonly, cx)))
     }
 
-    fn splittable(checked: bool, editor: &Entity<Self>, cx: &App) -> Stateful<Div> {
+    fn splittable(checked: bool, readonly: bool, editor: &Entity<Self>, cx: &App) -> Stateful<Div> {
         let editor = editor.clone();
 
         div()
@@ -867,11 +940,12 @@ impl Editor {
             .flex()
             .items_center()
             .gap(px(7.0))
-            .cursor_pointer()
             .text_size(px(11.5))
             .text_color(cx.theme().chip_fg)
-            .on_click(move |_event, _window, cx| {
-                editor.update(cx, |editor, cx| editor.set_splittable(!checked, cx));
+            .when(!readonly, |field| {
+                field.cursor_pointer().on_click(move |_event, _window, cx| {
+                    editor.update(cx, |editor, cx| editor.set_splittable(!checked, cx));
+                })
             })
             .child(Self::checkbox(checked, cx))
             .child(Text::new_inaccessible("Can be broken up".into()))
@@ -905,45 +979,57 @@ impl Editor {
             ))
     }
 
-    fn sessions_row(&self, cx: &App) -> Div {
+    fn sessions_row(&self, readonly: bool, cx: &App) -> Div {
         div()
             .flex()
             .gap(px(6.0))
             .mt(px(8.0))
             .child(Self::labeled(
                 "Target",
-                Input::new(self.preferred.clone()),
+                Input::new(self.preferred.clone()).readonly(readonly),
                 cx,
             ))
-            .child(Self::labeled("Min", Input::new(self.shortest.clone()), cx))
-            .child(Self::labeled("Max", Input::new(self.longest.clone()), cx))
+            .child(Self::labeled(
+                "Min",
+                Input::new(self.shortest.clone()).readonly(readonly),
+                cx,
+            ))
+            .child(Self::labeled(
+                "Max",
+                Input::new(self.longest.clone()).readonly(readonly),
+                cx,
+            ))
     }
 
-    fn either_side(&self, cx: &App) -> Div {
+    fn either_side(&self, readonly: bool, cx: &App) -> Div {
         div().child(Self::heading("Time either side", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
                 .child(Self::labeled(
                     "Prep (min)",
-                    Input::new(self.prep.clone()),
+                    Input::new(self.prep.clone()).readonly(readonly),
                     cx,
                 ))
                 .child(Self::labeled(
                     "Wrap up (min)",
-                    Input::new(self.cleanup.clone()),
+                    Input::new(self.cleanup.clone()).readonly(readonly),
                     cx,
                 )),
         )
     }
 
-    fn how_much(&self, repeat: Repeat, cx: &App) -> Div {
+    fn how_much(&self, repeat: Repeat, readonly: bool, cx: &App) -> Div {
         div().child(Self::heading("How much", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
-                .child(Self::labeled("Minutes", Input::new(self.total.clone()), cx))
-                .child(Self::labeled("Repeats", self.repeats(repeat), cx)),
+                .child(Self::labeled(
+                    "Minutes",
+                    Input::new(self.total.clone()).readonly(readonly),
+                    cx,
+                ))
+                .child(Self::labeled("Repeats", self.repeats(repeat, readonly), cx)),
         )
     }
 
@@ -960,7 +1046,7 @@ impl Editor {
         first: 0,
     };
 
-    fn dates(&self, dates: Dates, cx: &App) -> Stateful<Div> {
+    fn dates(&self, dates: Dates, readonly: bool, cx: &App) -> Stateful<Div> {
         div()
             .id("dates")
             .flex()
@@ -968,7 +1054,14 @@ impl Editor {
             .mt(px(8.0))
             .child(Self::labeled(
                 Self::FROM.label,
-                self.day_select(Self::FROM, &self.earliest, dates.from, Self::set_from, cx),
+                self.day_select(
+                    Self::FROM,
+                    &self.earliest,
+                    dates.from,
+                    Self::set_from,
+                    readonly,
+                    cx,
+                ),
                 cx,
             ))
             .child(Self::labeled(
@@ -978,6 +1071,7 @@ impl Editor {
                     &self.deadline,
                     dates.until,
                     Self::set_until,
+                    readonly,
                     cx,
                 ),
                 cx,
@@ -990,6 +1084,7 @@ impl Editor {
         state: &Entity<SelectState>,
         day: Option<i32>,
         set: fn(&mut Task, Option<i32>),
+        readonly: bool,
         cx: &App,
     ) -> Select {
         let agenda = self.agenda.clone();
@@ -1006,6 +1101,7 @@ impl Editor {
             day.filter(|day| *day >= first)
                 .map_or(0, |day| (day - first) as usize + 1),
         )
+        .readonly(readonly)
         .on_select(move |index, _window, cx| {
             agenda.update(cx, |agenda, cx| {
                 let day = (index > 0).then(|| index as i32 - 1 + first);
@@ -1031,7 +1127,7 @@ impl Editor {
             .collect()
     }
 
-    fn repeats(&self, repeat: Repeat) -> Select {
+    fn repeats(&self, repeat: Repeat, readonly: bool) -> Select {
         let agenda = self.agenda.clone();
         let task = self.task;
         let options = [
@@ -1047,6 +1143,7 @@ impl Editor {
 
         Select::new("repeats", "Repeats", self.repeat.clone(), options)
             .selected(Self::repeat_index(repeat))
+            .readonly(readonly)
             .on_select(move |index, _window, cx| {
                 agenda.update(cx, |agenda, cx| {
                     agenda.edit(task, |task| Self::set_repeat(task, index), cx)
@@ -1054,7 +1151,7 @@ impl Editor {
             })
     }
 
-    fn recurrences(&self, recurrence: Recurrence) -> Select {
+    fn recurrences(&self, recurrence: Recurrence, readonly: bool) -> Select {
         let agenda = self.agenda.clone();
         let task = self.task;
         let options = ["Doesn't repeat", "Weekly", "Biweekly"]
@@ -1063,6 +1160,7 @@ impl Editor {
 
         Select::new("recurrence", "Repeats", self.repeat.clone(), options)
             .selected(Self::recurrence_index(recurrence))
+            .readonly(readonly)
             .on_select(move |index, _window, cx| {
                 agenda.update(cx, |agenda, cx| {
                     agenda.edit(task, |task| Self::set_recurrence(task, index), cx)
@@ -1070,52 +1168,60 @@ impl Editor {
             })
     }
 
-    fn allowed_hours(&self, cx: &App) -> Div {
+    fn allowed_hours(&self, readonly: bool, cx: &App) -> Div {
         div().child(Self::heading("Allowed hours", cx)).child(
             div()
                 .flex()
                 .gap(px(8.0))
                 .child(Self::labeled(
                     "Not before",
-                    Input::new(self.opens.clone()),
+                    Input::new(self.opens.clone()).readonly(readonly),
                     cx,
                 ))
                 .child(Self::labeled(
                     "Finished by",
-                    Input::new(self.closes.clone()),
+                    Input::new(self.closes.clone()).readonly(readonly),
                     cx,
                 )),
         )
     }
 
-    fn when(&self, recurrence: Recurrence, cx: &App) -> Div {
+    fn when(&self, recurrence: Recurrence, readonly: bool, cx: &App) -> Div {
         div()
             .child(Self::heading("When", cx))
             .child(
                 div()
                     .flex()
                     .gap(px(8.0))
-                    .child(Self::labeled("Starts", Input::new(self.start.clone()), cx))
                     .child(Self::labeled(
-                        "Runs for (min)",
-                        Input::new(self.duration.clone()),
+                        "Starts",
+                        Input::new(self.start.clone()).readonly(readonly),
                         cx,
                     ))
-                    .child(Self::labeled("Repeats", self.recurrences(recurrence), cx)),
+                    .child(Self::labeled(
+                        "Runs for (min)",
+                        Input::new(self.duration.clone()).readonly(readonly),
+                        cx,
+                    ))
+                    .child(Self::labeled(
+                        "Repeats",
+                        self.recurrences(recurrence, readonly),
+                        cx,
+                    )),
             )
             .child(div().mt(px(8.0)).child(Self::labeled(
                 "Location",
-                Input::new(self.place.clone()),
+                Input::new(self.place.clone()).readonly(readonly),
                 cx,
             )))
             .child(div().mt(px(8.0)).child(Self::labeled(
                 "Overrun allowance (%)",
-                Input::new(self.overrun.clone()),
+                Input::new(self.overrun.clone()).readonly(readonly),
                 cx,
             )))
     }
 
-    fn days(&self, days: &[Weekday], cx: &App) -> Div {
+    fn days(&self, days: &[Weekday], readonly: bool, cx: &App) -> Div {
         let week = [
             Weekday::Sun,
             Weekday::Mon,
@@ -1130,11 +1236,11 @@ impl Editor {
             div()
                 .flex()
                 .gap(px(3.0))
-                .children(week.map(|day| self.day_chip(day, days.contains(&day), cx))),
+                .children(week.map(|day| self.day_chip(day, days.contains(&day), readonly, cx))),
         )
     }
 
-    fn priorities(&self, priority: Priority) -> Select {
+    fn priorities(&self, priority: Priority, readonly: bool) -> Select {
         let agenda = self.agenda.clone();
         let task = self.task;
         let options = ["Lowest", "Low", "Normal", "High", "Highest"]
@@ -1143,6 +1249,7 @@ impl Editor {
 
         Select::new("priority", "Priority", self.priority.clone(), options)
             .selected(priority as usize)
+            .readonly(readonly)
             .on_select(move |index, _window, cx| {
                 agenda.update(cx, |agenda, cx| {
                     agenda.edit(task, |task| task.priority = Self::ranked(index), cx)
@@ -1160,7 +1267,7 @@ impl Editor {
         }
     }
 
-    fn day_chip(&self, day: Weekday, selected: bool, cx: &App) -> Stateful<Div> {
+    fn day_chip(&self, day: Weekday, selected: bool, readonly: bool, cx: &App) -> Stateful<Div> {
         let agenda = self.agenda.clone();
         let task = self.task;
         let index = day.num_days_from_sunday() as usize;
@@ -1170,15 +1277,18 @@ impl Editor {
             ["S", "M", "T", "W", "T", "F", "S"][index].into(),
             selected,
             cx.theme().dim_fg,
+            readonly,
             cx,
         )
         .rounded(px(4.0))
         .py(px(4.0))
         .text_size(px(10.5))
-        .on_click(move |_event, _window, cx| {
-            agenda.update(cx, |agenda, cx| {
-                agenda.edit(task, |task| Self::toggle_day(task, day), cx)
-            });
+        .when(!readonly, |chip| {
+            chip.on_click(move |_event, _window, cx| {
+                agenda.update(cx, |agenda, cx| {
+                    agenda.edit(task, |task| Self::toggle_day(task, day), cx)
+                });
+            })
         })
     }
 
@@ -1187,6 +1297,7 @@ impl Editor {
         label: &'static str,
         selects_fixed: bool,
         fixed: bool,
+        readonly: bool,
         editor: &Entity<Self>,
         cx: &App,
     ) -> Stateful<Div> {
@@ -1197,14 +1308,17 @@ impl Editor {
             label.into(),
             selects_fixed == fixed,
             cx.theme().muted_fg,
+            readonly,
             cx,
         )
         .rounded(px(5.0))
         .p(px(5.0))
         .text_size(px(11.5))
         .font_weight(FontWeight::MEDIUM)
-        .on_click(move |_event, _window, cx| {
-            editor.update(cx, |editor, cx| editor.set_kind(selects_fixed, cx));
+        .when(!readonly, |button| {
+            button.on_click(move |_event, _window, cx| {
+                editor.update(cx, |editor, cx| editor.set_kind(selects_fixed, cx));
+            })
         })
     }
 }
@@ -1237,29 +1351,35 @@ impl Render for Editor {
         };
         let one_off = !task.repeats();
         let editor = cx.entity();
+        let readonly = Self::readonly();
+        let form = div()
+            .when(readonly, |form| form.opacity(Self::READONLY_OPACITY))
+            .child(
+                div().font_weight(FontWeight::SEMIBOLD).child(
+                    Input::new(self.title.clone())
+                        .text_size(px(14.0))
+                        .padding(px(8.0), px(6.0))
+                        .readonly(readonly),
+                ),
+            )
+            .child(Self::kinds(fixed, readonly, &editor, cx))
+            .child(Self::heading("Priority", cx))
+            .child(self.priorities(priority, readonly))
+            .children(fixed.then(|| self.when(recurrence, readonly, cx)))
+            .children((!fixed).then(|| self.how_much(repeat, readonly, cx)))
+            .child(self.dates(task.dates, readonly, cx))
+            .children((!fixed).then(|| self.splitting(splittable, readonly, &editor, cx)))
+            .children((!fixed).then(|| self.allowed_hours(readonly, cx)))
+            .children((!one_off).then(|| self.days(&days, readonly, cx)))
+            .child(self.either_side(readonly, cx));
 
-        page.child(
-            div().font_weight(FontWeight::SEMIBOLD).child(
-                Input::new(self.title.clone())
-                    .text_size(px(14.0))
-                    .padding(px(8.0), px(6.0)),
-            ),
-        )
-        .child(Self::kinds(fixed, &editor, cx))
-        .child(Self::heading("Priority", cx))
-        .child(self.priorities(priority))
-        .children(fixed.then(|| self.when(recurrence, cx)))
-        .children((!fixed).then(|| self.how_much(repeat, cx)))
-        .child(self.dates(task.dates, cx))
-        .children((!fixed).then(|| self.splitting(splittable, &editor, cx)))
-        .children((!fixed).then(|| self.allowed_hours(cx)))
-        .children((!one_off).then(|| self.days(&days, cx)))
-        .child(self.either_side(cx))
-        .children(
-            (!fixed)
-                .then(|| self.sessions_list(splittable, cx))
-                .flatten(),
-        )
-        .child(self.delete(cx))
+        page.children(readonly.then(|| self.banner(cx)))
+            .child(form)
+            .children(
+                (!fixed)
+                    .then(|| self.sessions_list(splittable, cx))
+                    .flatten(),
+            )
+            .children((!readonly).then(|| self.delete(cx)))
     }
 }

@@ -45,8 +45,9 @@ impl Panel {
         let selected = agenda.read(cx).selected();
 
         if selected != self.editor.as_ref().map(|editor| editor.read(cx).task()) {
-            self.editor =
-                selected.map(|task| cx.new(|cx| Editor::new(agenda.clone(), task, window, cx)));
+            self.editor = selected.map(|task| {
+                cx.new(|cx| Editor::new(agenda.clone(), self.import.clone(), task, window, cx))
+            });
         }
     }
 

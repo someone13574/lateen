@@ -3,7 +3,7 @@ use std::panic::Location;
 
 use gpui::prelude::*;
 use gpui::{
-    Action, App, Bounds, ContentMask, Context, CursorStyle, DispatchPhase, Element, ElementId,
+    Action, App, Bounds, ContentMask, Context, CursorStyle, DispatchPhase, Div, Element, ElementId,
     ElementInputHandler, Entity, GlobalElementId, InspectorElementId, LayoutId, MouseButton,
     MouseMoveEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style, TextAlign, TextRun,
     UnderlineStyle, Window, div, fill, point, px, relative, size,
@@ -23,6 +23,7 @@ pub struct Input {
     placeholder: SharedString,
     text_size: Pixels,
     padding: Point<Pixels>,
+    readonly: bool,
 }
 
 impl Input {
@@ -32,7 +33,13 @@ impl Input {
             placeholder: SharedString::default(),
             text_size: px(12.0),
             padding: point(px(6.0), px(4.0)),
+            readonly: false,
         }
+    }
+
+    pub fn readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
+        self
     }
 
     pub fn text_size(mut self, text_size: Pixels) -> Self {
@@ -43,6 +50,21 @@ impl Input {
     pub fn padding(mut self, horizontal: Pixels, vertical: Pixels) -> Self {
         self.padding = point(horizontal, vertical);
         self
+    }
+
+    fn frame(&self, cx: &App) -> Div {
+        div()
+            .relative()
+            .flex()
+            .w_full()
+            .px(self.padding.x)
+            .py(self.padding.y)
+            .border(px(1.0))
+            .rounded(px(4.0))
+            .bg(cx.theme().input_bg)
+            .border_color(cx.theme().input_border)
+            .text_size(self.text_size)
+            .text_color(cx.theme().fg)
     }
 
     fn action<A: Action>(
@@ -66,28 +88,22 @@ impl Input {
 
 impl RenderOnce for Input {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = *cx.theme();
         let focus_handle = self.state.read(cx).focus_handle.clone();
-        let focused = focus_handle.is_focused(window);
-        let invalid = self.state.read(cx).invalid;
+        let focused = focus_handle.is_focused(window) && !self.readonly;
+        let invalid = self.state.read(cx).invalid && !self.readonly;
+        let field = self.frame(cx).child(InputElement {
+            state: self.state.clone(),
+            placeholder: self.placeholder.clone(),
+        });
 
-        div()
+        if self.readonly {
+            return field.into_any_element();
+        }
+
+        field
             .key_context(InputState::KEY_CONTEXT)
             .track_focus(&focus_handle)
-            .relative()
-            .flex()
-            .w_full()
-            .px(self.padding.x)
-            .py(self.padding.y)
-            .border(px(1.0))
-            .rounded(px(4.0))
-            .bg(cx.theme().input_bg)
-            .border_color(match (invalid, focused) {
-                (true, _) => cx.theme().danger_fg,
-                (false, true) => cx.theme().input_focus_border,
-                (false, false) => cx.theme().input_border,
-            })
-            .text_size(self.text_size)
-            .text_color(cx.theme().fg)
             .cursor(CursorStyle::IBeam)
             .on_action(self.action::<Left>(InputState::left))
             .on_action(self.action::<Right>(InputState::right))
@@ -120,24 +136,21 @@ impl RenderOnce for Input {
                     }
                 }
             })
-            .child(InputElement {
-                state: self.state,
-                placeholder: self.placeholder,
-            })
             .when(focused || invalid, |input| {
                 input.child(
                     div()
                         .absolute()
-                        .inset(px(1.0))
+                        .inset(px(-1.0))
                         .border(px(2.0))
-                        .rounded(px(3.0))
+                        .rounded(px(4.0))
                         .border_color(if invalid {
-                            cx.theme().danger_border
+                            theme.danger_border
                         } else {
-                            cx.theme().input_ring
+                            theme.input_ring
                         }),
                 )
             })
+            .into_any_element()
     }
 }
 
