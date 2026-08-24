@@ -137,17 +137,19 @@ impl RenderOnce for Input {
                 }
             })
             .when(focused || invalid, |input| {
-                input.child(
+                let ring = if invalid {
+                    theme.danger_border
+                } else {
+                    theme.input_ring
+                };
+
+                input.border_color(ring).child(
                     div()
                         .absolute()
                         .inset(px(-1.0))
                         .border(px(2.0))
-                        .rounded(px(4.0))
-                        .border_color(if invalid {
-                            theme.danger_border
-                        } else {
-                            theme.input_ring
-                        }),
+                        .rounded(px(5.0))
+                        .border_color(ring),
                 )
             })
             .into_any_element()

@@ -220,7 +220,7 @@ impl Select {
             .absolute()
             .inset(px(-1.0))
             .border(px(2.0))
-            .rounded(px(4.0))
+            .rounded(px(5.0))
             .border_color(color)
     }
 
@@ -264,7 +264,9 @@ impl Select {
             ))
             .child(Self::caret(theme.dim_fg))
             .when(focused, |trigger| {
-                trigger.child(Self::ring(theme.input_ring))
+                trigger
+                    .border_color(theme.input_ring)
+                    .child(Self::ring(theme.input_ring))
             })
     }
 
