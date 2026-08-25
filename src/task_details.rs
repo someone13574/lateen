@@ -153,7 +153,7 @@ impl TaskDetails {
         let day = occurrence.start.div_euclid(Block::MINUTES_PER_DAY);
         let mut headline = vec![
             (task.title.to_string(), Self::strong(cx)),
-            (Self::when_label(day, &occurrence, cx), Self::body(cx)),
+            (Self::when_label(task, day, &occurrence, cx), Self::body(cx)),
         ];
 
         headline.extend(Self::place_line(task, cx));
@@ -218,16 +218,26 @@ impl TaskDetails {
         }
     }
 
-    fn when_label(day: i32, occurrence: &Range<i32>, cx: &App) -> String {
+    fn when_label(task: &Task, day: i32, occurrence: &Range<i32>, cx: &App) -> String {
         let clock = *cx.global::<ClockFormat>();
-        let times = format!(
-            "{} - {} ({})",
-            clock.time_label(occurrence.start),
-            clock.time_label(occurrence.end),
-            Self::duration_label(occurrence.end - occurrence.start)
-        );
+        let times = match task.all_day_days() {
+            Some(days) => Self::all_day_label(days),
+            None => format!(
+                "{} - {} ({})",
+                clock.time_label(occurrence.start),
+                clock.time_label(occurrence.end),
+                Self::duration_label(occurrence.end - occurrence.start)
+            ),
+        };
 
         Self::sentence(&format!("{}, {times}", Self::day_label(day, cx)))
+    }
+
+    fn all_day_label(days: i32) -> String {
+        match days {
+            1 => "all day".to_string(),
+            days => format!("all day, {days} days"),
+        }
     }
 
     fn kind_label(task: &Task) -> String {
@@ -247,6 +257,10 @@ impl TaskDetails {
 
     fn schedule_label(task: &Task, cx: &App) -> String {
         let clock = *cx.global::<ClockFormat>();
+
+        if let Some(days) = task.all_day_days() {
+            return Self::sentence(&Self::all_day_label(days));
+        }
 
         match &task.kind {
             TaskKind::Fixed {

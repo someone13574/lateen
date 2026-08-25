@@ -70,6 +70,7 @@ impl<'a> Planner<'a> {
         };
 
         let mut blocks = planner.fixed();
+        blocks.extend(planner.all_day());
         blocks.extend(planner.hold());
         planner.settled();
 
@@ -89,7 +90,7 @@ impl<'a> Planner<'a> {
         let tasks = self.tasks;
         let mut blocks = Vec::new();
 
-        for task in tasks {
+        for task in tasks.iter().filter(|task| !task.all_day) {
             let TaskKind::Fixed {
                 start,
                 duration,
@@ -113,6 +114,43 @@ impl<'a> Planner<'a> {
 
                 self.commit(task.id, start, Self::span(&segments), task.priority);
                 blocks.push(Self::block(task, start, segments));
+
+                if matches!(recurrence, Recurrence::Never) {
+                    break;
+                }
+            }
+        }
+
+        blocks
+    }
+
+    fn all_day(&self) -> Vec<Block> {
+        let mut blocks = Vec::new();
+
+        for task in self.tasks.iter().filter(|task| task.all_day) {
+            let TaskKind::Fixed {
+                duration,
+                recurrence,
+                ..
+            } = task.kind
+            else {
+                continue;
+            };
+            let spans = duration.div_euclid(Block::MINUTES_PER_DAY).max(1);
+
+            for day in 1 - spans..self.horizon {
+                if !self.places_on(task, recurrence, day) {
+                    continue;
+                }
+
+                let start = day * Block::MINUTES_PER_DAY;
+                let minutes = spans * Block::MINUTES_PER_DAY;
+
+                blocks.push(Self::block(
+                    task,
+                    start,
+                    vec![Self::segment(SegmentKind::Work, minutes)],
+                ));
 
                 if matches!(recurrence, Recurrence::Never) {
                     break;
@@ -790,7 +828,7 @@ impl<'a> Planner<'a> {
     }
 
     fn block(task: &Task, start: i32, segments: Vec<Segment>) -> Block {
-        let block = Block::new(task.id, start, task.title.clone(), segments);
+        let block = Block::new(task.id, start, task.title.clone(), segments).all_day(task.all_day);
 
         match &task.place {
             Some(place) => block.at(place.clone()),

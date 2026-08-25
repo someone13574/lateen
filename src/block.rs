@@ -26,6 +26,8 @@ pub struct Block {
     pub segments: Vec<Segment>,
     pub outcome: Option<Outcome>,
     pub conflict: bool,
+    #[serde(default)]
+    pub all_day: bool,
 }
 
 impl Block {
@@ -46,11 +48,17 @@ impl Block {
             segments,
             outcome: None,
             conflict: false,
+            all_day: false,
         }
     }
 
     pub fn conflicting(mut self, conflict: bool) -> Self {
         self.conflict = conflict;
+        self
+    }
+
+    pub fn all_day(mut self, all_day: bool) -> Self {
+        self.all_day = all_day;
         self
     }
 
@@ -64,6 +72,7 @@ impl Block {
             segments,
             outcome: Some(session.outcome),
             conflict: false,
+            all_day: false,
         }
     }
 

@@ -40,6 +40,8 @@ pub struct Task {
     pub cancelled: Vec<i32>,
     #[serde(default)]
     pub source: Option<SubscribedEvent>,
+    #[serde(default)]
+    pub all_day: bool,
 }
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -273,6 +275,20 @@ impl Task {
         self
     }
 
+    pub fn all_day(mut self, all_day: bool) -> Self {
+        self.all_day = all_day;
+        self
+    }
+
+    pub fn all_day_days(&self) -> Option<i32> {
+        let TaskKind::Fixed { duration, .. } = self.kind else {
+            return None;
+        };
+
+        self.all_day
+            .then(|| duration.div_euclid(Block::MINUTES_PER_DAY).max(1))
+    }
+
     pub fn keep_unmanaged(&mut self, previous: &Self) {
         self.color = previous.color;
         self.priority = previous.priority;
@@ -369,6 +385,7 @@ impl Task {
             kind,
             cancelled: Vec::new(),
             source: None,
+            all_day: false,
         }
     }
 }

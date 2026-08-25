@@ -62,6 +62,7 @@ pub struct BlockColors {
     pub outline: Rgba,
     pub fg: Rgba,
     pub meta_fg: Rgba,
+    pub hue: Rgba,
 }
 
 #[derive(Clone, Copy)]
@@ -89,6 +90,7 @@ impl BlockColors {
             outline: fade(self.outline),
             fg: fade(self.fg),
             meta_fg: fade(self.meta_fg),
+            hue: fade(self.hue),
         }
     }
 
@@ -103,6 +105,7 @@ impl BlockColors {
             outline: tint(Self::OUTLINE),
             fg: recipe.fg,
             meta_fg: recipe.meta_fg,
+            hue: color,
         }
     }
 }

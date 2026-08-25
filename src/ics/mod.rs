@@ -203,7 +203,6 @@ impl Ics {
     }
 
     fn commitment(event: &Event, source: SubscribedEvent, days: Vec<Weekday>) -> Task {
-        let marker = event.all_day || event.minutes <= 0;
         let start = match event.all_day {
             true => 0,
             false => event.start.num_seconds_from_midnight() as i32 / 60,
@@ -212,11 +211,14 @@ impl Ics {
             true => Self::UNTITLED,
             false => &event.summary,
         };
-        let duration = match marker {
-            true => Self::MARKER,
+        let duration = match event.all_day {
+            true => event.minutes.max(Block::MINUTES_PER_DAY),
+            false if event.minutes <= 0 => Self::MARKER,
             false => event.minutes,
         };
-        let task = Task::fixed(title, days, start, duration).managed(source);
+        let task = Task::fixed(title, days, start, duration)
+            .managed(source)
+            .all_day(event.all_day);
 
         match &event.place {
             Some(place) => task.at(place.clone()),

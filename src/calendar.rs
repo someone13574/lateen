@@ -1,11 +1,12 @@
+use std::ops::Range;
 use std::time::Duration;
 
 use chrono::{Days, NaiveDate};
 use gpui::prelude::*;
 use gpui::{
-    App, Axis, Bounds, Corners, Decorations, Div, Entity, FontWeight, PinchEvent, Pixels,
-    ScrollHandle, ScrollWheelEvent, Stateful, StyleRefinement, Text, Tiling, Window, div, point,
-    px, size,
+    App, Axis, Bounds, Corners, Decorations, Div, Entity, FontWeight, PinchEvent, Pixels, Rgba,
+    ScrollHandle, ScrollWheelEvent, SharedString, Stateful, StyleRefinement, Text, Tiling, Window,
+    div, point, px, size,
 };
 
 use crate::agenda::Agenda;
@@ -16,13 +17,16 @@ use crate::day_columns::DayColumns;
 use crate::grid::Grid;
 use crate::scrollbar::Scrollbar;
 use crate::selectable_text::SelectableText;
+use crate::task_details::TaskDetails;
 use crate::theme::ActiveTheme;
+use crate::tooltip::Tooltipped;
 
 pub struct Calendar {
     horizontal: ScrollHandle,
     vertical: ScrollHandle,
     day_height: Pixels,
     day_columns: Entity<DayColumns>,
+    agenda: Entity<Agenda>,
     revealed: bool,
 }
 
@@ -36,18 +40,23 @@ impl Calendar {
     const MIN_DAY_HEIGHT: Pixels = px(72.0);
     const NOW_INSET: Pixels = px(200.0);
     const MAX_DAY_HEIGHT: Pixels = px(5760.0);
+    const ALL_DAY_HEIGHT: Pixels = px(18.0);
+    const ALL_DAY_GAP: Pixels = px(4.0);
     const DAYS: usize = Agenda::HORIZON as usize;
     const ZOOM_RATE: f32 = 0.002;
 
     pub fn new(agenda: Entity<Agenda>, cx: &mut Context<Self>) -> Self {
         let day_height = px(1440.0);
         Self::follow_cursor(cx);
+        cx.observe(&agenda, |_calendar, _agenda, cx| cx.notify())
+            .detach();
 
         Self {
             horizontal: ScrollHandle::new(),
             vertical: ScrollHandle::new(),
             day_height,
-            day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, agenda, cx)),
+            day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, agenda.clone(), cx)),
+            agenda,
             revealed: false,
         }
     }
@@ -68,6 +77,28 @@ impl Calendar {
         self.day_height
             .clamp(Self::MIN_DAY_HEIGHT, Self::MAX_DAY_HEIGHT)
             .max(self.vertical.bounds().size.height)
+    }
+
+    fn header_height(&self, cx: &App) -> Pixels {
+        Self::HEADER_HEIGHT + Self::ALL_DAY_HEIGHT * self.all_day_rows(cx) as f32
+    }
+
+    fn all_day_rows(&self, cx: &App) -> usize {
+        let schedule = self.agenda.read(cx).schedule();
+
+        self.visible_days()
+            .map(|day| schedule.all_day(day as i32).count())
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn visible_days(&self) -> Range<usize> {
+        let column = f32::from(Grid::COLUMN_WIDTH);
+        let scrolled = f32::from(-self.horizontal.offset().x).max(0.0);
+        let reach = scrolled + f32::from(self.horizontal.bounds().size.width);
+
+        ((scrolled / column) as usize).min(Self::DAYS)
+            ..((reach / column).ceil() as usize).min(Self::DAYS)
     }
 
     fn follow_cursor(cx: &mut Context<Self>) {
@@ -124,11 +155,12 @@ impl Calendar {
 
     fn header(&self, cx: &mut Context<Self>) -> Div {
         let today = cx.global::<Clock>().now().date_naive();
+        let height = self.header_height(cx);
 
         div()
             .flex()
             .flex_none()
-            .h(Self::HEADER_HEIGHT)
+            .h(height)
             .child(
                 div()
                     .flex_none()
@@ -157,13 +189,20 @@ impl Calendar {
                             .flex_none()
                             .w(Grid::COLUMN_WIDTH * Self::DAYS)
                             .children(
-                                (0..Self::DAYS).map(|day| Self::column_header(day, today, cx)),
+                                (0..Self::DAYS)
+                                    .map(|day| self.column_header(day, today, height, cx)),
                             ),
                     ),
             )
     }
 
-    fn column_header(day: usize, today: NaiveDate, cx: &mut Context<Self>) -> Div {
+    fn column_header(
+        &self,
+        day: usize,
+        today: NaiveDate,
+        height: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let theme = *cx.theme();
         let date = today + Days::new(day as u64);
         let (bg, fg, sub_fg) = if day == 0 {
@@ -183,7 +222,7 @@ impl Calendar {
         div()
             .flex_none()
             .w(Grid::COLUMN_WIDTH)
-            .h(Self::HEADER_HEIGHT)
+            .h(height)
             .border_r(px(1.0))
             .border_color(theme.grid_day_border)
             .child(
@@ -196,30 +235,74 @@ impl Calendar {
                     .bg(bg)
                     .border_b(px(1.0))
                     .border_color(theme.column_header_border)
-                    .child(
-                        div()
-                            .text_size(px(10.5))
-                            .text_color(sub_fg)
-                            .child(Text::new(
-                                ("weekday", day).into(),
-                                date.format("%a").to_string().into(),
-                            )),
-                    )
-                    .child(
-                        div()
-                            .mt(px(1.0))
-                            .text_size(px(14.0))
-                            .font_weight(if day == 0 {
-                                FontWeight::BOLD
-                            } else {
-                                FontWeight::SEMIBOLD
-                            })
-                            .text_color(fg)
-                            .child(SelectableText::new(
-                                ("date", day),
-                                Self::date_label(day, date),
-                            )),
-                    ),
+                    .children(Self::date_group(day, date, fg, sub_fg))
+                    .children(self.all_day_events(day, fg, cx)),
+            )
+    }
+
+    fn date_group(day: usize, date: NaiveDate, fg: Rgba, sub_fg: Rgba) -> [Div; 2] {
+        [
+            div()
+                .text_size(px(10.5))
+                .text_color(sub_fg)
+                .child(Text::new(
+                    ("weekday", day).into(),
+                    date.format("%a").to_string().into(),
+                )),
+            div()
+                .mt(px(1.0))
+                .text_size(px(14.0))
+                .font_weight(if day == 0 {
+                    FontWeight::BOLD
+                } else {
+                    FontWeight::SEMIBOLD
+                })
+                .text_color(fg)
+                .child(SelectableText::new(
+                    ("date", day),
+                    Self::date_label(day, date),
+                )),
+        ]
+    }
+
+    fn all_day_events(&self, day: usize, fg: Rgba, cx: &App) -> Vec<Tooltipped> {
+        let theme = *cx.theme();
+        let column = SharedString::from(format!("all-day-{day}"));
+
+        self.agenda
+            .read(cx)
+            .schedule()
+            .all_day(day as i32)
+            .enumerate()
+            .map(|(index, block)| {
+                let hue = block.color.map(|color| theme.block(color).hue);
+
+                Tooltipped::new(
+                    (column.clone(), index),
+                    Self::all_day_event(block.title.clone(), fg, hue),
+                    TaskDetails::new(self.agenda.clone(), block.task)
+                        .occurrence(block.start..block.end()),
+                )
+            })
+            .collect()
+    }
+
+    fn all_day_event(title: SharedString, fg: Rgba, hue: Option<Rgba>) -> Div {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(5.0))
+            .mt(Self::ALL_DAY_GAP)
+            .h(Self::ALL_DAY_HEIGHT - Self::ALL_DAY_GAP)
+            .children(hue.map(|hue| div().flex_none().size(px(5.0)).rounded_full().bg(hue)))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(11.0))
+                    .text_color(fg)
+                    .child(Text::new("all-day-title".into(), title)),
             )
     }
 
@@ -336,6 +419,8 @@ impl Render for Calendar {
             Decorations::Server => Tiling::tiled(),
         };
 
+        let header = self.header_height(cx);
+
         div()
             .relative()
             .flex()
@@ -383,7 +468,7 @@ impl Render for Calendar {
             .child(
                 div()
                     .absolute()
-                    .top(Self::HEADER_HEIGHT)
+                    .top(header)
                     .left_0()
                     .right_0()
                     .bottom_0()
@@ -400,7 +485,7 @@ impl Render for Calendar {
             .child(
                 div()
                     .absolute()
-                    .top(Self::HEADER_HEIGHT)
+                    .top(header)
                     .right_0()
                     .bottom_0()
                     .w(Scrollbar::THICKNESS)

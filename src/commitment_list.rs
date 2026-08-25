@@ -183,6 +183,10 @@ impl CommitmentList {
     fn meta(task: &Task, cx: &App) -> String {
         let clock = cx.global::<ClockFormat>();
 
+        if let Some(days) = task.all_day_days() {
+            return Self::all_day_label(days);
+        }
+
         match &task.kind {
             TaskKind::Fixed {
                 start, duration, ..
@@ -226,6 +230,13 @@ impl CommitmentList {
         let date = cx.global::<Clock>().now().date_naive() + Days::new(day.max(0) as u64);
 
         date.format("%a %-d").to_string()
+    }
+
+    fn all_day_label(days: i32) -> String {
+        match days {
+            1 => "All day".to_string(),
+            days => format!("All day, {days} days"),
+        }
     }
 
     fn duration_label(minutes: i32) -> String {

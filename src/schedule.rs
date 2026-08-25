@@ -36,7 +36,7 @@ impl Schedule {
     }
 
     pub fn blocks(&self) -> impl Iterator<Item = &Block> {
-        self.blocks.iter()
+        self.blocks.iter().filter(|block| !block.all_day)
     }
 
     pub fn day(&self, day: i32, area: Bounds<Pixels>, now: f32) -> Vec<BlockView> {
@@ -44,7 +44,7 @@ impl Schedule {
             .blocks
             .iter()
             .chain(&self.past)
-            .filter(|block| block.covers(day))
+            .filter(|block| !block.all_day && block.covers(day))
             .collect();
 
         blocks.sort_by_key(|block| block.start);
@@ -62,6 +62,12 @@ impl Schedule {
             .zip(bounds)
             .filter_map(|(block, bounds)| BlockView::new(block, day, bounds, now))
             .collect()
+    }
+
+    pub fn all_day(&self, day: i32) -> impl Iterator<Item = &Block> {
+        self.blocks
+            .iter()
+            .filter(move |block| block.all_day && block.covers(day))
     }
 
     fn past(tasks: &[Task], log: &[Session]) -> Vec<Block> {
