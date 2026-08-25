@@ -102,8 +102,12 @@ impl Render for DayColumns {
             .update(cx, |agenda, cx| agenda.replan(cx));
 
         div()
+            .id("day-columns")
             .relative()
             .size_full()
+            .on_click(cx.listener(|columns, _event, _window, cx| {
+                columns.agenda.update(cx, Agenda::deselect);
+            }))
             .child(Grid::new(self.days, self.day_height, self.corners))
             .children(self.blocks(cx))
     }
