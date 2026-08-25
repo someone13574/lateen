@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use gpui::prelude::*;
 use gpui::{App, Bounds, Corners, Entity, Pixels, Window, div, point, px, size};
 
@@ -8,6 +10,8 @@ use crate::clock::Clock;
 use crate::grid::Grid;
 use crate::session::Outcome;
 use crate::task::TaskId;
+use crate::task_details::TaskDetails;
+use crate::tooltip::TooltipBuilder;
 
 pub struct DayColumns {
     days: usize,
@@ -58,14 +62,20 @@ impl DayColumns {
             .enumerate()
             .map(|(index, block)| {
                 let (task, start) = (block.task(), block.start());
+                let occurrence = block.occurrence();
 
                 block
                     .index(index)
+                    .details(self.details(task, occurrence))
                     .on_click(self.open(task))
                     .on_done(self.settle(task, start, Outcome::Done))
                     .on_skip(self.settle(task, start, Outcome::Skipped))
             })
             .collect()
+    }
+
+    fn details(&self, task: TaskId, occurrence: Range<i32>) -> Box<TooltipBuilder> {
+        TaskDetails::new(self.agenda.clone(), task).occurrence(occurrence)
     }
 
     fn settle(&self, task: TaskId, start: i32, outcome: Outcome) -> Box<ClickHandler> {

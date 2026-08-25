@@ -7,7 +7,9 @@ use crate::button::{Button, ClickHandler};
 use crate::clock::{Clock, ClockFormat};
 use crate::selectable_text::SelectableText;
 use crate::task::{Task, TaskId, TaskKind};
+use crate::task_details::TaskDetails;
 use crate::theme::{ActiveTheme, BlockColor};
+use crate::tooltip::{TooltipBuilder, Tooltipped};
 
 pub struct Running {
     agenda: Entity<Agenda>,
@@ -31,7 +33,12 @@ pub struct Upcoming {
 }
 
 #[derive(IntoElement)]
-pub enum NowCard {
+pub struct NowCard {
+    state: NowState,
+    details: Option<Box<TooltipBuilder>>,
+}
+
+enum NowState {
     Running(Running),
     Idle(Option<Upcoming>),
 }
@@ -332,19 +339,29 @@ impl NowCard {
         let state = agenda.read(cx);
 
         match state.running(now) {
-            Some(block) => Self::Running(Running::new(
-                block,
-                state.task(block.task),
-                agenda.clone(),
-                now,
-                cx,
-            )),
-            None => Self::Idle(
-                state
-                    .upcoming(now)
-                    .map(|block| Upcoming::new(block, now, cx)),
-            ),
+            Some(block) => Self {
+                details: Some(Self::details(agenda, block)),
+                state: NowState::Running(Running::new(
+                    block,
+                    state.task(block.task),
+                    agenda.clone(),
+                    now,
+                    cx,
+                )),
+            },
+            None => {
+                let next = state.upcoming(now);
+
+                Self {
+                    details: next.map(|block| Self::details(agenda, block)),
+                    state: NowState::Idle(next.map(|block| Upcoming::new(block, now, cx))),
+                }
+            }
         }
+    }
+
+    fn details(agenda: &Entity<Agenda>, block: &Block) -> Box<TooltipBuilder> {
+        TaskDetails::new(agenda.clone(), block.task).occurrence(block.start..block.end())
     }
 
     fn idle(next: Option<&Upcoming>, cx: &App) -> Div {
@@ -373,14 +390,19 @@ impl NowCard {
 
 impl RenderOnce for NowCard {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        div()
+        let card = div()
             .flex_none()
             .p(px(12.0))
             .border_b(px(1.0))
             .border_color(cx.theme().panel_divider)
-            .child(match &self {
-                Self::Running(running) => running.render(window, cx),
-                Self::Idle(next) => Self::idle(next.as_ref(), cx),
-            })
+            .child(match &self.state {
+                NowState::Running(running) => running.render(window, cx),
+                NowState::Idle(next) => Self::idle(next.as_ref(), cx),
+            });
+
+        match self.details {
+            Some(details) => Tooltipped::new("now-details", card, details).into_any_element(),
+            None => card.into_any_element(),
+        }
     }
 }

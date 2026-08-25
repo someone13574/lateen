@@ -232,6 +232,30 @@ impl Task {
         self.dates.covers(day) && !self.cancelled.contains(&day)
     }
 
+    pub fn days_label(&self) -> String {
+        let weekend = [Weekday::Sat, Weekday::Sun];
+        let weekdays = [
+            Weekday::Mon,
+            Weekday::Tue,
+            Weekday::Wed,
+            Weekday::Thu,
+            Weekday::Fri,
+        ];
+
+        match self.days.len() {
+            0 => "no days".to_string(),
+            7 => "every day".to_string(),
+            5 if weekdays.iter().all(|day| self.days.contains(day)) => "weekdays".to_string(),
+            2 if weekend.iter().all(|day| self.days.contains(day)) => "weekends".to_string(),
+            _ => self
+                .days
+                .iter()
+                .map(|day| day.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        }
+    }
+
     pub fn recurring(mut self, recurrence: Recurrence) -> Self {
         if let TaskKind::Fixed {
             recurrence: current,
@@ -388,6 +412,17 @@ pub enum Repeat {
 }
 
 impl Repeat {
+    pub fn cadence(self) -> &'static str {
+        match self {
+            Self::Never => "once",
+            Self::Daily => "each day",
+            Self::Weekly => "each week",
+            Self::Biweekly => "every other week",
+            Self::Monthly => "each month",
+            Self::Yearly => "each year",
+        }
+    }
+
     pub fn cycle(self) -> i32 {
         match self {
             Self::Never | Self::Daily => 1,
@@ -408,6 +443,18 @@ pub enum Recurrence {
     Yearly,
 }
 
+impl Recurrence {
+    pub fn label(self) -> Option<&'static str> {
+        match self {
+            Self::Never => None,
+            Self::Weekly => Some("each week"),
+            Self::Biweekly => Some("every other week"),
+            Self::Monthly => Some("each month"),
+            Self::Yearly => Some("each year"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Sessions {
     pub shortest: i32,
@@ -422,4 +469,16 @@ pub enum Priority {
     Normal,
     High,
     Highest,
+}
+
+impl Priority {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lowest => "lowest",
+            Self::Low => "low",
+            Self::Normal => "normal",
+            Self::High => "high",
+            Self::Highest => "highest",
+        }
+    }
 }

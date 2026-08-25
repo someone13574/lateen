@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use chrono::{Days, Weekday};
+use chrono::Days;
 use gpui::prelude::*;
 use gpui::{
-    App, ClickEvent, Div, ElementId, Entity, FontWeight, Pixels, Rgba, SharedString, Stateful,
-    Text, Window, div, px, relative,
+    App, ClickEvent, Div, ElementId, Entity, FontWeight, Pixels, Rgba, SharedString, Text, Window,
+    div, px, relative,
 };
 
 use crate::agenda::Agenda;
@@ -12,8 +12,10 @@ use crate::button::{Button, ClickHandler, Verdict};
 use crate::calendar_list::CalendarList;
 use crate::clock::{Clock, ClockFormat};
 use crate::session::{Outcome, Session};
-use crate::task::{Priority, Recurrence, Repeat, Task, TaskId, TaskKind};
+use crate::task::{Priority, Repeat, Task, TaskId, TaskKind};
+use crate::task_details::TaskDetails;
 use crate::theme::ActiveTheme;
+use crate::tooltip::{TooltipBuilder, Tooltipped};
 
 #[derive(IntoElement)]
 pub struct CommitmentList {
@@ -28,12 +30,12 @@ impl CommitmentList {
         Self { agenda, calendars }
     }
 
-    fn row(&self, index: usize, task: &Task, now: i32, cx: &App) -> Stateful<Div> {
+    fn row(&self, index: usize, task: &Task, now: i32, cx: &App) -> Tooltipped {
         let theme = *cx.theme();
         let swatch = task.color.map_or(theme.rule, |color| theme.swatch(color));
         let progress = self.agenda.read(cx).progress(task, now);
 
-        div()
+        let row = div()
             .id(("commitment", index))
             .flex()
             .gap(px(9.0))
@@ -72,7 +74,22 @@ impl CommitmentList {
                         px(1.0),
                     ))
                     .children(progress.map(|progress| Self::progress(index, swatch, progress, cx))),
-            )
+            );
+
+        Tooltipped::new(
+            ("commitment-details", index),
+            row,
+            self.details(task.id, None),
+        )
+    }
+
+    fn details(&self, task: TaskId, occurrence: Option<Range<i32>>) -> Box<TooltipBuilder> {
+        let details = TaskDetails::new(self.agenda.clone(), task);
+
+        match occurrence {
+            Some(occurrence) => details.occurrence(occurrence),
+            None => details.commitment(),
+        }
     }
 
     fn open(&self, task: TaskId) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
@@ -107,7 +124,7 @@ impl CommitmentList {
                     .text_color(cx.theme().faint_fg)
                     .child(Text::new(
                         ("commitment-priority", index).into(),
-                        Self::priority_label(task.priority).into(),
+                        Priority::label(task.priority).into(),
                     )),
             )
     }
@@ -184,66 +201,24 @@ impl CommitmentList {
                 (repeat, _) => format!(
                     "{} {}",
                     Self::duration_label(flexible.total),
-                    Self::cadence_label(repeat)
+                    repeat.cadence()
                 ),
             },
         }
     }
 
-    fn cadence_label(repeat: Repeat) -> &'static str {
-        match repeat {
-            Repeat::Daily => "each day",
-            Repeat::Weekly => "each week",
-            Repeat::Biweekly => "every other week",
-            Repeat::Monthly => "each month",
-            Repeat::Yearly => "each year",
-            Repeat::Never => "once",
-        }
-    }
-
-    fn recurrence_label(recurrence: Recurrence) -> Option<&'static str> {
-        match recurrence {
-            Recurrence::Monthly => Some("each month"),
-            Recurrence::Yearly => Some("each year"),
-            Recurrence::Never | Recurrence::Weekly | Recurrence::Biweekly => None,
-        }
-    }
-
     fn sub(task: &Task) -> String {
-        let days = Self::days_label(&task.days);
+        let days = task.days_label();
 
         match &task.kind {
             TaskKind::Fixed { recurrence, .. } => match &task.place {
                 Some(place) => place.to_string(),
-                None => Self::recurrence_label(*recurrence).map_or(days, str::to_string),
+                None => recurrence.label().map_or(days, str::to_string),
             },
             TaskKind::Flexible(flexible) => match flexible.sessions {
                 Some(sessions) => format!("{days}, {}m sessions", sessions.preferred),
                 None => format!("{days}, in one sitting"),
             },
-        }
-    }
-
-    fn days_label(days: &[Weekday]) -> String {
-        let weekend = [Weekday::Sat, Weekday::Sun];
-        let weekdays = [
-            Weekday::Mon,
-            Weekday::Tue,
-            Weekday::Wed,
-            Weekday::Thu,
-            Weekday::Fri,
-        ];
-
-        match days.len() {
-            0 => "no days".to_string(),
-            7 => "every day".to_string(),
-            5 if weekdays.iter().all(|day| days.contains(day)) => "weekdays".to_string(),
-            2 if weekend.iter().all(|day| days.contains(day)) => "weekends".to_string(),
-            _ => days
-                .iter()
-                .map(|day| day.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
         }
     }
 
@@ -258,16 +233,6 @@ impl CommitmentList {
             (0, minutes) => format!("{minutes}m"),
             (hours, 0) => format!("{hours}h"),
             (hours, minutes) => format!("{hours}h {minutes}m"),
-        }
-    }
-
-    fn priority_label(priority: Priority) -> &'static str {
-        match priority {
-            Priority::Lowest => "lowest",
-            Priority::Low => "low",
-            Priority::Normal => "normal",
-            Priority::High => "high",
-            Priority::Highest => "highest",
         }
     }
 
@@ -293,7 +258,7 @@ impl CommitmentList {
             .children(trailing)
     }
 
-    fn pending_row(&self, index: usize, session: &Session, cx: &App) -> Div {
+    fn pending_row(&self, index: usize, session: &Session, cx: &App) -> Tooltipped {
         let theme = *cx.theme();
         let state = self.agenda.read(cx);
         let task = state.task(session.task);
@@ -302,7 +267,7 @@ impl CommitmentList {
             .map_or(theme.rule, |color| theme.swatch(color));
         let title = task.map_or_else(SharedString::default, |task| task.title.clone());
 
-        div()
+        let row = div()
             .flex()
             .items_center()
             .gap(px(9.0))
@@ -340,7 +305,13 @@ impl CommitmentList {
                         px(2.0),
                     )),
             )
-            .child(self.verdict(index, session))
+            .child(self.verdict(index, session));
+
+        Tooltipped::new(
+            ("pending-details", index),
+            row,
+            self.details(session.task, Some(session.start..session.end)),
+        )
     }
 
     fn verdict(&self, index: usize, session: &Session) -> Div {

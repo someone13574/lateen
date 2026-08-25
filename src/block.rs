@@ -14,6 +14,7 @@ use crate::clock::ClockFormat;
 use crate::session::{Outcome, Session};
 use crate::task::{Task, TaskId};
 use crate::theme::{ActiveTheme, BlockColor, BlockColors};
+use crate::tooltip::{TooltipBuilder, Tooltipped};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Block {
@@ -220,6 +221,7 @@ pub struct BlockView {
     on_click: Option<Box<ClickHandler>>,
     on_done: Option<Box<ClickHandler>>,
     on_skip: Option<Box<ClickHandler>>,
+    details: Option<Box<TooltipBuilder>>,
 }
 
 impl BlockView {
@@ -259,6 +261,7 @@ impl BlockView {
             on_click: None,
             on_done: None,
             on_skip: None,
+            details: None,
         })
     }
 
@@ -268,6 +271,15 @@ impl BlockView {
 
     pub fn start(&self) -> i32 {
         self.start
+    }
+
+    pub fn occurrence(&self) -> Range<i32> {
+        self.start..self.start + self.span
+    }
+
+    pub fn details(mut self, details: Box<TooltipBuilder>) -> Self {
+        self.details = Some(details);
+        self
     }
 
     pub fn index(mut self, index: usize) -> Self {
@@ -539,8 +551,10 @@ impl RenderOnce for BlockView {
     fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let colors = self.state.colors(self.color, cx);
         let verdict = self.verdict(cx);
+        let details = self.details.take();
+        let index = self.index;
 
-        div()
+        let block = div()
             .id(("block", self.index))
             .role(Role::Button)
             .aria_label(self.title.clone())
@@ -581,6 +595,13 @@ impl RenderOnce for BlockView {
                     cx.stop_propagation();
                     on_click(window, cx);
                 })
-            })
+            });
+
+        match details {
+            Some(details) => {
+                Tooltipped::new(("block-details", index), block, details).into_any_element()
+            }
+            None => block.into_any_element(),
+        }
     }
 }

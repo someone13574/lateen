@@ -6,9 +6,10 @@ use gpui::accesskit::Node;
 use gpui::prelude::*;
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase, Element, ElementId, Entity,
-    FocusHandle, Focusable, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId,
-    KeyBinding, KeyContext, LayoutId, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    Role, SharedString, StyledText, TextLayout, Window, actions, fill, point, size,
+    FocusHandle, Focusable, GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior,
+    InspectorElementId, KeyBinding, KeyContext, LayoutId, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Role, SharedString, StyledText, TextLayout, Window, actions, fill,
+    point, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -161,6 +162,7 @@ impl TextSelection {
 pub struct SelectableText {
     id: ElementId,
     text: SharedString,
+    runs: Vec<(Range<usize>, HighlightStyle)>,
 }
 
 impl SelectableText {
@@ -168,7 +170,13 @@ impl SelectableText {
         Self {
             id: id.into(),
             text: text.into(),
+            runs: Vec::new(),
         }
+    }
+
+    pub fn runs(mut self, runs: Vec<(Range<usize>, HighlightStyle)>) -> Self {
+        self.runs = runs;
+        self
     }
 }
 
@@ -185,6 +193,7 @@ impl RenderOnce for SelectableText {
             id: self.id,
             state,
             text: self.text,
+            runs: self.runs,
         }
     }
 }
@@ -193,6 +202,7 @@ struct SelectableTextElement {
     id: ElementId,
     state: Entity<TextSelection>,
     text: SharedString,
+    runs: Vec<(Range<usize>, HighlightStyle)>,
 }
 
 struct Row {
@@ -446,7 +456,8 @@ impl Element for SelectableTextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let mut styled = StyledText::new(self.text.clone());
+        let mut styled =
+            StyledText::new(self.text.clone()).with_highlights(self.runs.iter().cloned());
         let (layout_id, ()) = styled.request_layout(None, inspector_id, window, cx);
 
         (layout_id, styled)

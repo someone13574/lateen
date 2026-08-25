@@ -49,8 +49,10 @@ mod session;
 mod store;
 mod subscription;
 mod task;
+mod task_details;
 mod theme;
 mod titlebar;
+mod tooltip;
 mod window;
 mod window_control;
 
