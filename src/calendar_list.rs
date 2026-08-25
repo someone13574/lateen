@@ -11,6 +11,7 @@ use crate::input::{Entry, Input, InputEvent, InputState};
 use crate::selectable_text::SelectableText;
 use crate::subscription::{Subscription, SubscriptionId};
 use crate::theme::ActiveTheme;
+use crate::tooltip::{Tooltip, TooltipBuilder, Tooltipped};
 
 pub struct CalendarList {
     open: bool,
@@ -103,16 +104,19 @@ impl CalendarList {
                         subscription.name.clone(),
                     )),
             )
-            .child(
+            .child(Tooltipped::new(
+                ("calendar-address", index),
                 div()
                     .mt(px(2.0))
+                    .truncate()
                     .text_size(px(10.5))
                     .text_color(cx.theme().dim_fg)
-                    .child(SelectableText::new(
-                        ("calendar-url", index),
-                        subscription.url.clone(),
+                    .child(Text::new(
+                        ("calendar-url", index).into(),
+                        subscription.short_address(),
                     )),
-            )
+                Self::full_address(subscription.url.clone()),
+            ))
             .child(
                 div()
                     .mt(px(3.0))
@@ -126,6 +130,12 @@ impl CalendarList {
                         self.status(subscription, cx),
                     )),
             )
+    }
+
+    fn full_address(url: SharedString) -> Box<TooltipBuilder> {
+        Tooltip::element(move |_window, _cx| {
+            SelectableText::new("calendar-address-tooltip", url.clone()).into_any_element()
+        })
     }
 
     fn status(&self, subscription: &Subscription, cx: &App) -> SharedString {

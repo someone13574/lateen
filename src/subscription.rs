@@ -123,6 +123,22 @@ impl Subscription {
         self.failure = Some(Self::reason(&*failure).into());
     }
 
+    pub fn short_address(&self) -> SharedString {
+        let address = Self::address(&self.url);
+        let address = address.split(['?', '#']).next().unwrap_or_default();
+
+        let Some((host, path)) = address.split_once('/') else {
+            return address.to_string().into();
+        };
+        let path = path.trim_end_matches('/');
+
+        match path.rsplit_once('/') {
+            Some((_, tail)) => format!("{host}/…/{tail}").into(),
+            None if path.is_empty() => host.to_string().into(),
+            None => format!("{host}/{path}").into(),
+        }
+    }
+
     fn reason(failure: &dyn Error) -> String {
         let mut deepest = failure;
 
@@ -143,13 +159,15 @@ impl Subscription {
         }
     }
 
-    fn host(url: &str) -> SharedString {
-        let address = url.split_once("://").map_or(url, |(_, address)| address);
+    fn address(url: &str) -> &str {
+        url.split_once("://").map_or(url, |(_, address)| address)
+    }
 
-        address
+    fn host(url: &str) -> SharedString {
+        Self::address(url)
             .split('/')
             .next()
-            .unwrap_or(address)
+            .unwrap_or_default()
             .to_string()
             .into()
     }

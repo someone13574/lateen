@@ -42,7 +42,7 @@ impl Titlebar {
             })
             .on_mouse_move(|_event, _window, cx| cx.stop_propagation())
             .child(Button::new("new", "New").on_click(on_new))
-            .child(Button::new("import-calendar", "Import calendar").on_click(on_import))
+            .child(Button::new("import-calendar", "Calendars").on_click(on_import))
     }
 
     fn controls(window: &Window) -> Div {
