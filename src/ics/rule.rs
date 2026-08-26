@@ -125,6 +125,10 @@ impl Rule {
         }
     }
 
+    pub fn through(&self, start: NaiveDate, limit: NaiveDate) -> Vec<NaiveDate> {
+        self.occurrences(start, Some(limit))
+    }
+
     fn occurrences(&self, start: NaiveDate, limit: Option<NaiveDate>) -> Vec<NaiveDate> {
         let mut dates = Vec::new();
         let mut counted = 0;
@@ -309,7 +313,7 @@ impl Rule {
     }
 
     fn until(value: &str) -> Option<NaiveDate> {
-        Some(Moment::read(value, None)?.local.date_naive())
+        Some(Moment::read(value, None, &[])?.local.date_naive())
     }
 
     fn numbers<T: FromStr>(value: &str) -> Option<Vec<T>> {

@@ -3,6 +3,7 @@ use chrono::{DateTime, Local, NaiveDate};
 use crate::ics::line::Line;
 use crate::ics::moment::Moment;
 use crate::ics::rule::Rule;
+use crate::ics::zone::Zone;
 
 pub enum Repetition {
     Once,
@@ -23,25 +24,25 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn read(lines: &[Line]) -> Option<Self> {
+    pub fn read(lines: &[Line], zones: &[Zone]) -> Option<Self> {
         if Self::value(lines, "STATUS").as_deref() == Some("CANCELLED") {
             return None;
         }
 
-        let start = Self::find(lines, "DTSTART").and_then(Moment::parse)?;
+        let start = Self::find(lines, "DTSTART").and_then(|line| Moment::parse(line, zones))?;
         let summary = Self::value(lines, "SUMMARY").unwrap_or_default();
 
         Some(Self {
             uid: Self::identity(lines, &summary, &start),
             summary,
             place: Self::value(lines, "LOCATION").filter(|place| !place.is_empty()),
-            minutes: Self::length(lines, &start),
+            minutes: Self::length(lines, &start, zones),
             all_day: start.all_day,
             start: start.local,
             repeats: Self::repetition(lines),
-            excluded: Self::excluded(lines),
+            excluded: Self::excluded(lines, zones),
             instance: Self::find(lines, "RECURRENCE-ID")
-                .and_then(Moment::parse)
+                .and_then(|line| Moment::parse(line, zones))
                 .map(|moment| moment.local.date_naive()),
         })
     }
@@ -71,8 +72,8 @@ impl Event {
         }
     }
 
-    fn length(lines: &[Line], start: &Moment) -> i32 {
-        if let Some(end) = Self::find(lines, "DTEND").and_then(Moment::parse) {
+    fn length(lines: &[Line], start: &Moment, zones: &[Zone]) -> i32 {
+        if let Some(end) = Self::find(lines, "DTEND").and_then(|line| Moment::parse(line, zones)) {
             return (end.local - start.local).num_minutes() as i32;
         }
 
@@ -81,11 +82,11 @@ impl Event {
             .unwrap_or_default()
     }
 
-    fn excluded(lines: &[Line]) -> Vec<NaiveDate> {
+    fn excluded(lines: &[Line], zones: &[Zone]) -> Vec<NaiveDate> {
         lines
             .iter()
             .filter(|line| line.name == "EXDATE")
-            .flat_map(Moment::each)
+            .flat_map(|line| Moment::each(line, zones))
             .map(|moment| moment.local.date_naive())
             .collect()
     }

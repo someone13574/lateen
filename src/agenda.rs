@@ -39,10 +39,14 @@ impl Agenda {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self::follow_clock(cx);
 
-        match StoredAgenda::load() {
+        let mut agenda = match StoredAgenda::load() {
             Some(stored) => Self::restored(stored, cx),
             None => Self::seeded(cx),
-        }
+        };
+
+        agenda.resync(cx);
+
+        agenda
     }
 
     pub fn selected(&self) -> Option<TaskId> {
@@ -414,6 +418,18 @@ impl Agenda {
 
     fn same_event(task: &Task, other: &Task) -> bool {
         task.source.is_some() && task.source == other.source
+    }
+
+    fn resync(&mut self, cx: &mut Context<Self>) {
+        let subscribed: Vec<_> = self
+            .subscriptions
+            .iter()
+            .map(|subscription| subscription.id)
+            .collect();
+
+        for id in subscribed {
+            self.sync(id, cx);
+        }
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {

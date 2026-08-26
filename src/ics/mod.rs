@@ -6,6 +6,7 @@ use crate::block::Block;
 use crate::ics::event::{Event, Repetition};
 use crate::ics::line::Line;
 use crate::ics::rule::{Rule, Weekly};
+use crate::ics::zone::Zone;
 use crate::subscription::{SubscribedEvent, SubscriptionId};
 use crate::task::{Dates, Recurrence, Task};
 
@@ -13,6 +14,7 @@ mod event;
 mod line;
 mod moment;
 mod rule;
+mod zone;
 
 pub struct Ics {
     name: Option<String>,
@@ -35,14 +37,16 @@ impl Ics {
             name: None,
             events: Vec::new(),
         };
+        let lines: Vec<_> = Line::unfold(text)
+            .iter()
+            .filter_map(|line| Line::parse(line))
+            .collect();
+        let zones = Zone::all(&lines);
         let mut current: Option<Vec<Line>> = None;
         let mut nested = 0;
 
-        for line in Line::unfold(text)
-            .iter()
-            .filter_map(|line| Line::parse(line))
-        {
-            ics.read(line, &mut current, &mut nested);
+        for line in lines {
+            ics.read(line, &zones, &mut current, &mut nested);
         }
 
         ics
@@ -256,7 +260,13 @@ impl Ics {
         (spread < Self::WEEK).then_some(opening)
     }
 
-    fn read(&mut self, line: Line, current: &mut Option<Vec<Line>>, nested: &mut i32) {
+    fn read(
+        &mut self,
+        line: Line,
+        zones: &[Zone],
+        current: &mut Option<Vec<Line>>,
+        nested: &mut i32,
+    ) {
         match (line.name.as_str(), line.value.as_str()) {
             ("BEGIN", "VEVENT") => {
                 *current = Some(Vec::new());
@@ -264,7 +274,7 @@ impl Ics {
             }
             ("END", "VEVENT") => {
                 if let Some(lines) = current.take() {
-                    self.events.extend(Event::read(&lines));
+                    self.events.extend(Event::read(&lines, zones));
                 }
             }
             ("BEGIN", _) => *nested += 1,
