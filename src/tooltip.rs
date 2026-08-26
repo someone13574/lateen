@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, AnyTooltip, AnyView, App, Bounds, BoxShadow, Element, ElementId, GlobalElementId,
-    Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId, MouseMoveEvent, Pixels,
-    Point, TooltipId, Window, div, px, relative,
+    AnyElement, AnyTooltip, AnyView, App, AvailableSpace, Bounds, BoxShadow, Element, ElementId,
+    GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
+    MouseMoveEvent, Pixels, Point, TooltipId, Window, div, point, px, relative, size,
 };
 
 use crate::theme::ActiveTheme;
@@ -18,6 +18,12 @@ pub type TooltipBuilder = dyn Fn(&mut Window, &mut App) -> AnyView;
 
 pub struct Tooltip {
     content: Rc<TooltipContent>,
+}
+
+struct PlacedTooltip {
+    view: AnyView,
+    right_padding: Pixels,
+    bottom_padding: Pixels,
 }
 
 impl Tooltip {
@@ -33,6 +39,15 @@ impl Tooltip {
 
             cx.new(|_cx| Self { content }).into()
         })
+    }
+}
+
+impl Render for PlacedTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .pr(self.right_padding)
+            .pb(self.bottom_padding)
+            .child(self.view.clone())
     }
 }
 
@@ -80,6 +95,7 @@ pub struct HoverTracking {
     strayed: Option<Instant>,
     id: Option<TooltipId>,
     watching: bool,
+    bounds: Option<Bounds<Pixels>>,
 }
 
 impl HoverTracking {
@@ -97,8 +113,10 @@ impl HoverTracking {
             self.inside = inside;
 
             if !inside {
-                self.spent = false;
                 self.settled = None;
+                if self.anchor.is_none() {
+                    self.spent = false;
+                }
             }
         }
 
@@ -152,6 +170,36 @@ impl HoverTracking {
         self.anchor = None;
         self.view = None;
         self.strayed = None;
+    }
+
+    fn hide_after_stray(&mut self) {
+        self.hide();
+        if !self.inside {
+            self.spent = false;
+        }
+    }
+
+    fn clear(&mut self) -> bool {
+        let active = self.anchor.is_some()
+            || self.view.is_some()
+            || self.settled.is_some()
+            || self.strayed.is_some();
+
+        self.inside = false;
+        self.spent = false;
+        self.settled = None;
+        self.anchor = None;
+        self.view = None;
+        self.strayed = None;
+
+        active
+    }
+
+    fn update_bounds(&mut self, bounds: Bounds<Pixels>) -> bool {
+        let moved = self.bounds.is_some_and(|previous| previous != bounds);
+        self.bounds = Some(bounds);
+
+        moved && self.clear()
     }
 }
 
@@ -229,7 +277,7 @@ impl Tooltipped {
         if tracking.stale() && !tracking.id.is_some_and(|id| id.is_hovered(window)) {
             drop(tracking);
 
-            state.borrow_mut().hide();
+            state.borrow_mut().hide_after_stray();
             window.refresh();
 
             return false;
@@ -238,15 +286,44 @@ impl Tooltipped {
         tracking.resting()
     }
 
-    fn request(state: &Rc<RefCell<HoverTracking>>, window: &mut Window) {
+    fn request(state: &Rc<RefCell<HoverTracking>>, window: &mut Window, cx: &mut App) {
         let Some(view) = state.borrow().view.clone() else {
             return;
         };
         let anchor = state.borrow().anchor.unwrap_or_default();
+        let tooltip_size =
+            view.clone()
+                .into_any_element()
+                .layout_as_root(AvailableSpace::min_size(), window, cx);
+
+        let inset = window.client_inset().unwrap_or(Pixels::ZERO);
+        let visual_bounds = Bounds {
+            origin: point(inset, inset),
+            size: window.viewport_size() - size(inset * 2.0, inset * 2.0),
+        };
+        let force_left = anchor.x + px(1.0) + tooltip_size.width > visual_bounds.right()
+            && anchor.x - tooltip_size.width - px(1.0) >= visual_bounds.left();
+        let force_up = anchor.y + px(1.0) + tooltip_size.height > visual_bounds.bottom()
+            && anchor.y - tooltip_size.height - px(1.0) >= visual_bounds.top();
+        let compensated_anchor = anchor
+            + point(
+                if force_left { inset } else { px(0.0) },
+                if force_up { inset } else { px(0.0) },
+            );
+        let view = if force_left || force_up {
+            cx.new(|_cx| PlacedTooltip {
+                view,
+                right_padding: if force_left { inset } else { px(0.0) },
+                bottom_padding: if force_up { inset } else { px(0.0) },
+            })
+            .into()
+        } else {
+            view
+        };
 
         let id = window.set_tooltip(AnyTooltip {
             view,
-            mouse_position: anchor,
+            mouse_position: compensated_anchor,
             check_visible_and_update: Rc::new(|_bounds, _window, _cx| true),
         });
 
@@ -307,7 +384,8 @@ impl Element for Tooltipped {
                 (state.clone(), state)
             });
 
-        Self::request(&state, window);
+        state.borrow_mut().update_bounds(bounds);
+        Self::request(&state, window, cx);
 
         (hitbox, state)
     }
@@ -327,6 +405,7 @@ impl Element for Tooltipped {
         let (hitbox, state) = prepaint.clone();
         let build = self.build.clone();
 
+        let move_state = state.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
             if !phase.bubble() {
                 return;
@@ -334,12 +413,12 @@ impl Element for Tooltipped {
 
             let inside = hitbox.is_hovered(window);
 
-            state.borrow_mut().moved(inside, event.position);
+            move_state.borrow_mut().moved(inside, event.position);
 
-            let resting = state.borrow().resting();
+            let resting = move_state.borrow().resting();
 
             if !resting {
-                Self::watch(&state, &build, window, cx);
+                Self::watch(&move_state, &build, window, cx);
             }
         });
     }
