@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use chrono::{Local, Timelike};
 use gpui::prelude::*;
-use gpui::{Entity, Pixels, Window, div, px};
+use gpui::{Decorations, Entity, Pixels, Tiling, Window, div, px};
 
 use crate::agenda::Agenda;
+use crate::bottom_bar::BottomBar;
 use crate::calendar_list::CalendarList;
 use crate::commitment_list::CommitmentList;
 use crate::editor::Editor;
@@ -20,6 +21,7 @@ pub struct Panel {
 impl Panel {
     const WIDTH: Pixels = px(340.0);
     const MIN_WIDTH: Pixels = px(264.0);
+    const CORNER_RADIUS: Pixels = px(8.0);
 
     pub fn new(
         agenda: Entity<Agenda>,
@@ -68,7 +70,12 @@ impl Panel {
 }
 
 impl Render for Panel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tiling = match window.window_decorations() {
+            Decorations::Client { tiling } => tiling,
+            Decorations::Server => Tiling::tiled(),
+        };
+
         div()
             .flex()
             .flex_col()
@@ -78,6 +85,10 @@ impl Render for Panel {
             .bg(cx.theme().panel_bg)
             .border_l(px(1.0))
             .border_color(cx.theme().panel_border)
+            .when(
+                !BottomBar::enabled() && !tiling.bottom && !tiling.right,
+                |panel| panel.rounded_br(Self::CORNER_RADIUS),
+            )
             .child(NowCard::new(&self.agenda, cx))
             .child(match &self.editor {
                 Some(editor) => editor.clone().into_any_element(),

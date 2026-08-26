@@ -63,7 +63,7 @@ struct RootView {
     calendars: Entity<CalendarList>,
     calendar: Entity<Calendar>,
     panel: Entity<Panel>,
-    bottom_bar: Entity<BottomBar>,
+    bottom_bar: Option<Entity<BottomBar>>,
 }
 
 impl RootView {
@@ -116,7 +116,7 @@ impl Render for RootView {
                         .child(self.calendar.clone())
                         .child(self.panel.clone()),
                 )
-                .child(self.bottom_bar.clone()),
+                .children(self.bottom_bar.clone()),
         )
     }
 }
@@ -154,7 +154,7 @@ fn main() {
             cx.new(|cx| RootView {
                 calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
                 panel: cx.new(|cx| Panel::new(agenda.clone(), calendars.clone(), window, cx)),
-                bottom_bar: cx.new(BottomBar::new),
+                bottom_bar: BottomBar::enabled().then(|| cx.new(BottomBar::new)),
                 agenda,
                 calendars,
             })

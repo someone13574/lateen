@@ -1,3 +1,4 @@
+use std::env;
 use std::time::{Duration, Instant};
 
 use chrono::{Local, Timelike};
@@ -19,6 +20,11 @@ impl BottomBar {
     const TRAVEL_RATE: f32 = 15.0;
     const TRAVEL_ACCEL: f32 = 6.0;
     const TRAVEL_LIMIT: f32 = 720.0;
+    const TIME_TRAVEL: &str = "LATEEN_TIME_TRAVEL";
+
+    pub fn enabled() -> bool {
+        env::var_os(Self::TIME_TRAVEL).is_some()
+    }
 
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self::follow_seconds(cx);
