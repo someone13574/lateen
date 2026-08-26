@@ -132,17 +132,12 @@ fn main() {
         SelectState::init(cx);
         TextSelection::init(cx);
 
-        let decorations = match gpui::guess_compositor() {
-            "X11" => WindowDecorations::Server,
-            _ => WindowDecorations::Client,
-        };
-
         let options = WindowOptions {
             titlebar: Some(TitlebarOptions {
                 title: Some(APP_NAME.into()),
                 ..Default::default()
             }),
-            window_decorations: Some(decorations),
+            window_decorations: Some(WindowDecorations::Client),
             window_min_size: Some(size(px(480.0), px(360.0))),
             app_id: Some("com.github.someone13574.lateen".to_string()),
             ..Default::default()
