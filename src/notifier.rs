@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::ops::Range;
 
+use chrono::NaiveDate;
 use futures_lite::StreamExt;
 use gpui::prelude::*;
 use gpui::{App, Entity, Global, TaskExt};
@@ -17,6 +18,7 @@ use crate::task::{TaskId, TaskKind};
 pub struct Notifier {
     server: Option<Proxy<'static>>,
     announced: i32,
+    announced_on: Option<NaiveDate>,
     serial: u64,
     skips: Vec<Skip>,
 }
@@ -37,10 +39,12 @@ impl Notifier {
 
     pub fn init(agenda: Entity<Agenda>, cx: &mut App) {
         let announced = Self::minute(cx);
+        let announced_on = agenda.read(cx).resumed_on();
 
         cx.set_global(Self {
             server: None,
             announced,
+            announced_on,
             serial: 0,
             skips: Vec::new(),
         });
@@ -72,6 +76,7 @@ impl Notifier {
         cx.update_global::<Self, _>(|notifier, cx| {
             let due = notifier.due(now);
             notifier.skips.retain(|target| target.end > now);
+            notifier.announce_day(agenda, cx);
 
             if focused {
                 return;
@@ -97,6 +102,35 @@ impl Notifier {
         (announced + 1).max(now - Self::CATCH_UP)..now + 1
     }
 
+    fn announce_day(&mut self, agenda: &Agenda, cx: &mut App) {
+        let today = agenda.today();
+
+        if self.server.is_none() || self.announced_on.is_some_and(|day| day >= today) {
+            return;
+        }
+
+        self.announced_on = Some(today);
+
+        for block in agenda.schedule().all_day(0) {
+            let body = Self::all_day_body(block);
+
+            self.dispatch(block.title.to_string(), body, Vec::new(), cx);
+        }
+    }
+
+    fn all_day_body(block: &Block) -> String {
+        let days = block.end().div_euclid(Block::MINUTES_PER_DAY);
+        let body = match days {
+            1 => "All day".to_owned(),
+            days => format!("All day, {days} days"),
+        };
+
+        match &block.place {
+            Some(place) => format!("{body}, {place}"),
+            None => body,
+        }
+    }
+
     fn flexible(block: &Block, agenda: &Agenda) -> bool {
         agenda
             .task(block.task)
@@ -117,15 +151,18 @@ impl Notifier {
     }
 
     fn send(&mut self, block: &Block, cue: Cue, flexible: bool, cx: &mut App) {
-        let Some(server) = self.server.clone() else {
-            return;
-        };
-
-        let title = block.title.to_string();
         let body = cue.body(block, *cx.global::<ClockFormat>());
         let actions = match flexible && cue.kind.opens() {
             true => vec![self.skip(block), "Skip".to_owned()],
             false => Vec::new(),
+        };
+
+        self.dispatch(block.title.to_string(), body, actions, cx);
+    }
+
+    fn dispatch(&self, title: String, body: String, actions: Vec<String>, cx: &mut App) {
+        let Some(server) = self.server.clone() else {
+            return;
         };
 
         cx.spawn(async move |_cx| {

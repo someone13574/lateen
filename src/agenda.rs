@@ -26,6 +26,7 @@ pub struct Agenda {
     schedule: Schedule,
     planned_at: i64,
     planned_on: NaiveDate,
+    resumed_on: Option<NaiveDate>,
     selected: Option<TaskId>,
 }
 
@@ -127,6 +128,10 @@ impl Agenda {
 
     pub fn today(&self) -> NaiveDate {
         self.planned_on
+    }
+
+    pub fn resumed_on(&self) -> Option<NaiveDate> {
+        self.resumed_on
     }
 
     pub fn unconfirmed(&self) -> Vec<&Session> {
@@ -443,6 +448,7 @@ impl Agenda {
             schedule: Schedule::plan(&mut tasks, &log, None, Self::HORIZON, now),
             planned_at: Self::minute(now),
             planned_on: now.date_naive(),
+            resumed_on: None,
             pin: None,
             subscriptions: Vec::new(),
             tasks,
@@ -480,6 +486,7 @@ impl Agenda {
         let mut agenda = Self {
             schedule: Schedule::plan(&mut tasks, &log, pin.as_ref(), Self::HORIZON, planned_at),
             planned_on: planned_at.date_naive(),
+            resumed_on: Some(planned_at.date_naive()),
             planned_at: Self::minute(planned_at),
             pin,
             subscriptions,
