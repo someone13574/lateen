@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, AnyTooltip, AnyView, App, AvailableSpace, Bounds, BoxShadow, Element, ElementId,
-    GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
+    Entity, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
     MouseMoveEvent, Pixels, Point, TooltipId, Window, div, point, px, relative, size,
 };
 
@@ -14,16 +14,11 @@ use crate::theme::ActiveTheme;
 
 type TooltipContent = dyn Fn(&mut Window, &mut App) -> AnyElement;
 
-pub type TooltipBuilder = dyn Fn(&mut Window, &mut App) -> AnyView;
+pub type TooltipBuilder = dyn Fn(&mut Window, &mut App) -> Entity<Tooltip>;
 
 pub struct Tooltip {
     content: Rc<TooltipContent>,
-}
-
-struct PlacedTooltip {
-    view: AnyView,
-    right_padding: Pixels,
-    bottom_padding: Pixels,
+    padding: Point<Pixels>,
 }
 
 impl Tooltip {
@@ -37,17 +32,18 @@ impl Tooltip {
         Box::new(move |_window, cx| {
             let content = content.clone();
 
-            cx.new(|_cx| Self { content }).into()
+            cx.new(|_cx| Self {
+                content,
+                padding: Point::default(),
+            })
         })
     }
-}
 
-impl Render for PlacedTooltip {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .pr(self.right_padding)
-            .pb(self.bottom_padding)
-            .child(self.view.clone())
+    fn set_padding(&mut self, padding: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.padding != padding {
+            self.padding = padding;
+            cx.notify();
+        }
     }
 }
 
@@ -56,26 +52,31 @@ impl Render for Tooltip {
         let theme = *cx.theme();
         let content = self.content.clone();
 
-        div().pl(px(8.0)).pt(px(10.0)).child(
-            div()
-                .occlude()
-                .max_w(Self::MAX_WIDTH)
-                .px(px(8.0))
-                .py(px(5.0))
-                .rounded(px(4.0))
-                .border(px(1.0))
-                .border_color(theme.button_border)
-                .bg(theme.card_bg)
-                .shadow(vec![
-                    BoxShadow::new(px(0.0), px(4.0), theme.window_shadow.into())
-                        .blur_radius(px(10.0)),
-                ])
-                .font_family("Inter")
-                .line_height(relative(1.21))
-                .text_size(px(11.5))
-                .text_color(theme.fg)
-                .child(content(window, cx)),
-        )
+        div()
+            .pl(px(8.0))
+            .pt(px(10.0))
+            .pr(self.padding.x)
+            .pb(self.padding.y)
+            .child(
+                div()
+                    .occlude()
+                    .max_w(Self::MAX_WIDTH)
+                    .px(px(8.0))
+                    .py(px(5.0))
+                    .rounded(px(4.0))
+                    .border(px(1.0))
+                    .border_color(theme.button_border)
+                    .bg(theme.card_bg)
+                    .shadow(vec![
+                        BoxShadow::new(px(0.0), px(4.0), theme.window_shadow.into())
+                            .blur_radius(px(10.0)),
+                    ])
+                    .font_family("Inter")
+                    .line_height(relative(1.21))
+                    .text_size(px(11.5))
+                    .text_color(theme.fg)
+                    .child(content(window, cx)),
+            )
     }
 }
 
@@ -91,7 +92,7 @@ pub struct HoverTracking {
     spent: bool,
     settled: Option<(Instant, Point<Pixels>)>,
     anchor: Option<Point<Pixels>>,
-    view: Option<AnyView>,
+    view: Option<Entity<Tooltip>>,
     strayed: Option<Instant>,
     id: Option<TooltipId>,
     watching: bool,
@@ -158,7 +159,7 @@ impl HoverTracking {
         self.anchor.is_none() && self.settled.is_none()
     }
 
-    fn show(&mut self, view: AnyView, position: Point<Pixels>) {
+    fn show(&mut self, view: Entity<Tooltip>, position: Point<Pixels>) {
         self.anchor = Some(position);
         self.view = Some(view);
         self.settled = None;
@@ -291,10 +292,11 @@ impl Tooltipped {
             return;
         };
         let anchor = state.borrow().anchor.unwrap_or_default();
-        let tooltip_size =
-            view.clone()
-                .into_any_element()
-                .layout_as_root(AvailableSpace::min_size(), window, cx);
+        let padded = view.read(cx).padding;
+        let tooltip_size = AnyView::from(view.clone())
+            .into_any_element()
+            .layout_as_root(AvailableSpace::min_size(), window, cx)
+            - size(padded.x, padded.y);
 
         let inset = window.client_inset().unwrap_or(Pixels::ZERO);
         let visual_bounds = Bounds {
@@ -305,24 +307,16 @@ impl Tooltipped {
             && anchor.x - tooltip_size.width - px(1.0) >= visual_bounds.left();
         let force_up = anchor.y + px(1.0) + tooltip_size.height > visual_bounds.bottom()
             && anchor.y - tooltip_size.height - px(1.0) >= visual_bounds.top();
-        let compensated_anchor = anchor
-            + point(
-                if force_left { inset } else { px(0.0) },
-                if force_up { inset } else { px(0.0) },
-            );
-        let view = if force_left || force_up {
-            cx.new(|_cx| PlacedTooltip {
-                view,
-                right_padding: if force_left { inset } else { px(0.0) },
-                bottom_padding: if force_up { inset } else { px(0.0) },
-            })
-            .into()
-        } else {
-            view
-        };
+        let padding = point(
+            if force_left { inset } else { px(0.0) },
+            if force_up { inset } else { px(0.0) },
+        );
+        let compensated_anchor = anchor + padding;
+
+        view.update(cx, |tooltip, cx| tooltip.set_padding(padding, cx));
 
         let id = window.set_tooltip(AnyTooltip {
-            view,
+            view: view.into(),
             mouse_position: compensated_anchor,
             check_visible_and_update: Rc::new(|_bounds, _window, _cx| true),
         });
