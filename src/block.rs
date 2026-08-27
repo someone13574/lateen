@@ -143,6 +143,26 @@ impl Block {
             .map(|segment| segment.minutes)
             .sum()
     }
+
+    pub fn work_range(&self) -> Range<i32> {
+        let transition = |segment: &&Segment| segment.kind != SegmentKind::Work;
+        let before: i32 = self
+            .segments
+            .iter()
+            .take_while(transition)
+            .map(|segment| segment.minutes)
+            .sum();
+        let after: i32 = self
+            .segments
+            .iter()
+            .rev()
+            .take_while(transition)
+            .map(|segment| segment.minutes)
+            .sum();
+        let start = self.start + before;
+
+        start..(self.end() - after).max(start)
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -220,7 +240,7 @@ pub struct BlockView {
     unconfirmed: bool,
     conflict: bool,
     start: i32,
-    span: i32,
+    work_range: Range<i32>,
     work: i32,
     visible: Range<i32>,
     opens: bool,
@@ -260,7 +280,7 @@ impl BlockView {
             unconfirmed: block.outcome == Some(Outcome::Assumed),
             conflict: block.conflict,
             start: block.start,
-            span: block.span(),
+            work_range: block.work_range(),
             work: block.work(),
             visible: midnight + slice.start - block.start..midnight + slice.end - block.start,
             opens: block.start >= midnight,
@@ -283,7 +303,7 @@ impl BlockView {
     }
 
     pub fn occurrence(&self) -> Range<i32> {
-        self.start..self.start + self.span
+        self.work_range.clone()
     }
 
     pub fn details(mut self, details: Box<TooltipBuilder>) -> Self {
@@ -403,8 +423,8 @@ impl BlockView {
 
         format!(
             "{} - {} ({})",
-            clock.time_label(self.start),
-            clock.time_label(self.start + self.span),
+            clock.time_label(self.work_range.start),
+            clock.time_label(self.work_range.end),
             Self::duration_label(self.work)
         )
     }

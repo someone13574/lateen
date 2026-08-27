@@ -277,6 +277,7 @@ impl CommitmentList {
             .and_then(|task| task.color)
             .map_or(theme.rule, |color| theme.swatch(color));
         let title = task.map_or_else(SharedString::default, |task| task.title.clone());
+        let range = task.map_or(session.start..session.end, |task| session.work_range(task));
 
         let row = div()
             .flex()
@@ -310,7 +311,7 @@ impl CommitmentList {
                     )
                     .child(Self::row_line(
                         ("pending-meta", index),
-                        Self::session_label(session, cx),
+                        Self::session_label(session, range.clone(), cx),
                         px(10.5),
                         theme.pending_meta_fg,
                         px(2.0),
@@ -321,7 +322,7 @@ impl CommitmentList {
         Tooltipped::new(
             ("pending-details", index),
             row,
-            self.details(session.task, Some(session.start..session.end)),
+            self.details(session.task, Some(range)),
         )
     }
 
@@ -354,13 +355,13 @@ impl CommitmentList {
         })
     }
 
-    fn session_label(session: &Session, cx: &App) -> String {
+    fn session_label(session: &Session, range: Range<i32>, cx: &App) -> String {
         let clock = cx.global::<ClockFormat>();
 
         let times = format!(
             "{} to {}, {}",
-            clock.time_label(session.start),
-            clock.time_label(session.end),
+            clock.time_label(range.start),
+            clock.time_label(range.end),
             Self::duration_label(session.work)
         );
 

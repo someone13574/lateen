@@ -3,7 +3,7 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 
 use crate::block::Block;
-use crate::task::TaskId;
+use crate::task::{Task, TaskId};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outcome {
@@ -34,6 +34,12 @@ impl Session {
 
     pub fn day(&self) -> i32 {
         self.start.div_euclid(Block::MINUTES_PER_DAY)
+    }
+
+    pub fn work_range(&self, task: &Task) -> Range<i32> {
+        let start = (self.start + task.prep).min(self.end);
+
+        start..(self.end - task.cleanup).max(start)
     }
 
     pub fn credited(&self) -> i32 {

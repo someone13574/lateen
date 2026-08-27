@@ -79,10 +79,11 @@ impl Running {
     }
 
     fn range(block: &Block, clock: ClockFormat) -> String {
+        let work = block.work_range();
         let range = format!(
             "{} to {}",
-            clock.time_label(block.start),
-            clock.time_label(block.end())
+            clock.time_label(work.start),
+            clock.time_label(work.end)
         );
 
         match &block.place {
@@ -240,7 +241,8 @@ impl Running {
 
 impl Upcoming {
     fn new(block: &Block, now: f32, cx: &App) -> Self {
-        let when = cx.global::<ClockFormat>().time_label(block.start);
+        let start = block.work_range().start;
+        let when = cx.global::<ClockFormat>().time_label(start);
 
         Self {
             title: block.title.clone(),
@@ -248,7 +250,7 @@ impl Upcoming {
                 Some(place) => format!("{when}, {place}"),
                 None => when,
             },
-            countdown: Self::duration_label((block.start as f32 - now).round() as i32),
+            countdown: Self::duration_label((start as f32 - now).round() as i32),
         }
     }
 
@@ -361,7 +363,7 @@ impl NowCard {
     }
 
     fn details(agenda: &Entity<Agenda>, block: &Block) -> Box<TooltipBuilder> {
-        TaskDetails::new(agenda.clone(), block.task).occurrence(block.start..block.end())
+        TaskDetails::new(agenda.clone(), block.task).occurrence(block.work_range())
     }
 
     fn idle(next: Option<&Upcoming>, cx: &App) -> Div {

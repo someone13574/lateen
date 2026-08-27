@@ -253,7 +253,7 @@ impl Cue {
     fn body(&self, block: &Block, clock: ClockFormat) -> String {
         let body = match self.kind {
             CueKind::Prep => format!("Starts at {}", clock.time_label(self.until)),
-            CueKind::Start => format!("Until {}", clock.time_label(block.end())),
+            CueKind::Start => format!("Until {}", clock.time_label(block.work_range().end)),
             CueKind::BreakStart => format!("Back at {}", clock.time_label(self.until)),
             CueKind::BreakEnd => format!("Until {}", clock.time_label(self.until)),
             CueKind::Cleanup => "Cleanup".to_owned(),

@@ -713,7 +713,7 @@ impl Editor {
                     agenda.progress(task, now).filter(|_| splittable),
                     cx,
                 ))
-                .children(past.iter().map(|session| self.past_row(session, cx)))
+                .children(past.iter().map(|session| self.past_row(session, task, cx)))
                 .children(future.iter().map(|block| self.future_row(block, clock, cx))),
         )
     }
@@ -743,14 +743,14 @@ impl Editor {
             ))
     }
 
-    fn range_label(start: i32, end: i32, cx: &App) -> String {
+    fn range_label(range: Range<i32>, cx: &App) -> String {
         let clock = *cx.global::<ClockFormat>();
 
         format!(
             "{}, {} to {}",
-            Self::day_tag(start.div_euclid(Block::MINUTES_PER_DAY), cx),
-            clock.time_label(start),
-            clock.time_label(end)
+            Self::day_tag(range.start.div_euclid(Block::MINUTES_PER_DAY), cx),
+            clock.time_label(range.start),
+            clock.time_label(range.end)
         )
     }
 
@@ -851,7 +851,7 @@ impl Editor {
         Self::session_row(theme.card_bg, border)
             .child(Self::session_text(
                 start as usize,
-                Self::range_label(start, block.end(), cx),
+                Self::range_label(block.work_range(), cx),
                 match running {
                     true => format!(
                         "running, {} left",
@@ -872,7 +872,7 @@ impl Editor {
             )
     }
 
-    fn past_row(&self, session: &Session, cx: &App) -> Div {
+    fn past_row(&self, session: &Session, task: &Task, cx: &App) -> Div {
         let theme = *cx.theme();
         let assumed = session.outcome == Outcome::Assumed;
         let id = session.start as usize;
@@ -891,7 +891,7 @@ impl Editor {
         )
         .child(Self::session_text(
             id,
-            Self::range_label(session.start, session.end, cx),
+            Self::range_label(session.work_range(task), cx),
             Self::outcome_label(session.outcome).into(),
             if session.outcome == Outcome::Skipped {
                 theme.faint_fg
