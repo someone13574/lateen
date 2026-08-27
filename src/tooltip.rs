@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, AnyTooltip, AnyView, App, AvailableSpace, Bounds, BoxShadow, Element, ElementId,
-    Entity, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
-    MouseMoveEvent, Pixels, Point, TooltipId, Window, div, point, px, relative, size,
+    AnyElement, AnyTooltip, AnyView, App, AvailableSpace, Bounds, BoxShadow, DispatchPhase,
+    Element, ElementId, Entity, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId,
+    IntoElement, LayoutId, MouseDownEvent, MouseMoveEvent, Pixels, Point, TooltipId, Window, div,
+    point, px, relative, size,
 };
 
 use crate::theme::ActiveTheme;
@@ -97,6 +98,7 @@ pub struct HoverTracking {
     id: Option<TooltipId>,
     watching: bool,
     bounds: Option<Bounds<Pixels>>,
+    suppressed: Option<Point<Pixels>>,
 }
 
 impl HoverTracking {
@@ -110,6 +112,13 @@ impl HoverTracking {
     }
 
     fn moved(&mut self, inside: bool, position: Point<Pixels>) {
+        if self
+            .suppressed
+            .is_some_and(|at| Self::strayed_from(at, position))
+        {
+            self.suppressed = None;
+        }
+
         if self.inside != inside {
             self.inside = inside;
 
@@ -121,7 +130,7 @@ impl HoverTracking {
             }
         }
 
-        if inside && self.anchor.is_none() && !self.spent {
+        if inside && self.anchor.is_none() && !self.spent && self.suppressed.is_none() {
             let restart = match self.settled {
                 Some((_, at)) => Self::strayed_from(at, position),
                 None => true,
@@ -173,11 +182,21 @@ impl HoverTracking {
         self.strayed = None;
     }
 
-    fn hide_after_stray(&mut self) {
+    fn hide_and_rearm(&mut self) {
         self.hide();
         if !self.inside {
             self.spent = false;
         }
+    }
+
+    fn dismiss(&mut self, at: Option<Point<Pixels>>) -> bool {
+        let showing = self.anchor.is_some() || self.settled.is_some();
+
+        self.settled = None;
+        self.suppressed = at;
+        self.hide_and_rearm();
+
+        showing
     }
 
     fn clear(&mut self) -> bool {
@@ -278,7 +297,7 @@ impl Tooltipped {
         if tracking.stale() && !tracking.id.is_some_and(|id| id.is_hovered(window)) {
             drop(tracking);
 
-            state.borrow_mut().hide_after_stray();
+            state.borrow_mut().hide_and_rearm();
             window.refresh();
 
             return false;
@@ -398,6 +417,26 @@ impl Element for Tooltipped {
 
         let (hitbox, state) = prepaint.clone();
         let build = self.build.clone();
+
+        let down_hitbox = hitbox.clone();
+        let down_state = state.clone();
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, _cx| {
+            if phase != DispatchPhase::Capture {
+                return;
+            }
+
+            let mut tracking = down_state.borrow_mut();
+
+            if tracking.id.is_some_and(|id| id.is_hovered(window)) {
+                return;
+            }
+
+            let pressed = down_hitbox.is_hovered(window).then_some(event.position);
+
+            if tracking.dismiss(pressed) {
+                window.refresh();
+            }
+        });
 
         let move_state = state.clone();
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
