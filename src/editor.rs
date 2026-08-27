@@ -3,8 +3,8 @@ use std::ops::Range;
 use chrono::{Days, TimeDelta, Weekday};
 use gpui::prelude::*;
 use gpui::{
-    App, Div, ElementId, Entity, FocusHandle, FontWeight, KeyBinding, Rgba, Role, SharedString,
-    Stateful, Text, Window, actions, div, px,
+    App, ClickEvent, Div, ElementId, Entity, FocusHandle, FontWeight, KeyBinding, Rgba, Role,
+    SharedString, Stateful, Text, Window, actions, div, px,
 };
 
 use crate::agenda::Agenda;
@@ -20,7 +20,7 @@ use crate::subscription::SubscriptionId;
 use crate::task::{
     Dates, Flexible, Priority, Recurrence, Repeat, Sessions, Task, TaskId, TaskKind,
 };
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, Theme};
 
 actions!(day_chip, [FocusNext, FocusPrevious, Toggle]);
 
@@ -58,6 +58,7 @@ pub struct Editor {
 
 impl Editor {
     const READONLY_OPACITY: f32 = 0.55;
+    const BANNER_GROUP: &'static str = "calendar-banner";
     const DAY_KEY_CONTEXT: &'static str = "DayChip";
 
     pub fn init(cx: &mut App) {
@@ -537,6 +538,7 @@ impl Editor {
 
         div().flex_1().min_w_0().child(
             div()
+                .truncate()
                 .text_size(px(11.5))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(cx.theme().heading_fg)
@@ -547,18 +549,38 @@ impl Editor {
         )
     }
 
-    fn open_calendars(&self) -> Box<ClickHandler> {
+    fn open_settings(
+        &self,
+        subscription: SubscriptionId,
+    ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
         let agenda = self.agenda.clone();
         let calendars = self.calendars.clone();
 
-        Box::new(move |_window, cx| {
+        move |_event, _window, cx| {
             agenda.update(cx, Agenda::deselect);
-            calendars.update(cx, |calendars, cx| calendars.open(cx));
-        })
+            calendars.update(cx, |calendars, cx| {
+                calendars.show_settings(subscription, cx)
+            });
+        }
     }
 
-    fn banner(&self, subscription: SubscriptionId, cx: &App) -> Div {
+    fn opener(theme: Theme) -> Div {
         div()
+            .flex_none()
+            .text_size(px(13.0))
+            .text_color(theme.dim_fg)
+            .group_hover(Self::BANNER_GROUP, |style| style.text_color(theme.link_fg))
+            .child(Text::new_inaccessible("\u{203a}".into()))
+    }
+
+    fn banner(&self, subscription: SubscriptionId, cx: &App) -> Stateful<Div> {
+        let theme = *cx.theme();
+
+        div()
+            .id("calendar-settings")
+            .role(Role::Button)
+            .aria_label("Calendar settings")
+            .group(Self::BANNER_GROUP)
             .flex()
             .items_center()
             .gap(px(8.0))
@@ -567,16 +589,14 @@ impl Editor {
             .py(px(8.0))
             .rounded(px(5.0))
             .border(px(1.0))
-            .border_color(cx.theme().button_border)
-            .bg(cx.theme().card_bg)
-            .text_color(cx.theme().muted_fg)
+            .border_color(theme.button_border)
+            .bg(theme.card_bg)
+            .text_color(theme.muted_fg)
+            .cursor_pointer()
+            .hover(|style| style.border_color(theme.chip_border).bg(theme.row_hover_bg))
+            .on_click(self.open_settings(subscription))
             .child(self.provenance(subscription, cx))
-            .child(
-                Button::new("view-calendars", "View calendars")
-                    .small()
-                    .padding(px(8.0), px(3.0))
-                    .on_click(self.open_calendars()),
-            )
+            .child(Self::opener(theme))
     }
 
     fn heading(label: &'static str, cx: &App) -> Div {

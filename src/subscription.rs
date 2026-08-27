@@ -9,7 +9,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::ics::Import;
-use crate::task::Task;
+use crate::task::{Priority, Task, TaskKind};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubscriptionId(u64);
@@ -39,6 +39,79 @@ impl SubscriptionId {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub enum Transitions {
+    Fixed {
+        prep: i32,
+        cleanup: i32,
+    },
+    Scaled {
+        start_percent: i32,
+        end_percent: i32,
+        shortest: i32,
+        longest: i32,
+    },
+}
+
+impl Transitions {
+    pub fn minutes(self, duration: i32) -> (i32, i32) {
+        match self {
+            Self::Fixed { prep, cleanup } => (prep, cleanup),
+            Self::Scaled {
+                start_percent,
+                end_percent,
+                shortest,
+                longest,
+            } => (
+                Self::scale(start_percent, duration, shortest, longest),
+                Self::scale(end_percent, duration, shortest, longest),
+            ),
+        }
+    }
+
+    fn scale(percent: i32, duration: i32, shortest: i32, longest: i32) -> i32 {
+        (duration * percent / 100).clamp(shortest, longest.max(shortest))
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct CalendarDefaults {
+    pub priority: Priority,
+    pub overrun_percent: i32,
+    pub transitions: Transitions,
+}
+
+impl Default for CalendarDefaults {
+    fn default() -> Self {
+        Self {
+            priority: Priority::Normal,
+            overrun_percent: 0,
+            transitions: Transitions::Fixed {
+                prep: 0,
+                cleanup: 0,
+            },
+        }
+    }
+}
+
+impl CalendarDefaults {
+    pub fn govern(&self, task: &mut Task) {
+        let TaskKind::Fixed { duration, .. } = task.kind else {
+            return;
+        };
+
+        task.priority = self.priority;
+        (task.prep, task.cleanup) = self.transitions.minutes(duration);
+
+        if let TaskKind::Fixed {
+            overrun_percent, ..
+        } = &mut task.kind
+        {
+            *overrun_percent = self.overrun_percent;
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubscribedEvent {
     pub subscription: SubscriptionId,
@@ -53,6 +126,8 @@ pub struct Subscription {
     pub synced: Option<DateTime<Local>>,
     pub dropped: usize,
     pub failure: Option<SharedString>,
+    #[serde(default)]
+    pub defaults: CalendarDefaults,
     #[serde(skip)]
     pub syncing: bool,
 }
@@ -72,6 +147,7 @@ impl Subscription {
             synced: None,
             dropped: 0,
             failure: None,
+            defaults: CalendarDefaults::default(),
             syncing: false,
         }
     }

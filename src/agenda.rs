@@ -15,7 +15,7 @@ use crate::notifier::Notifier;
 use crate::schedule::Schedule;
 use crate::session::{Outcome, Session};
 use crate::store::StoredAgenda;
-use crate::subscription::{Subscription, SubscriptionId};
+use crate::subscription::{CalendarDefaults, Subscription, SubscriptionId};
 use crate::task::{Repeat, Task, TaskId, TaskKind};
 
 pub struct Agenda {
@@ -294,10 +294,45 @@ impl Agenda {
         };
 
         edit(target);
+        target.overridden |= target.source.is_some();
         self.share_unmanaged(task);
 
         if self.pin.as_ref().is_some_and(|pin| pin.task == task) {
             self.pin = None;
+        }
+
+        self.plan(cx.global::<Clock>().now(), cx);
+        cx.notify();
+    }
+
+    pub fn edit_defaults(
+        &mut self,
+        id: SubscriptionId,
+        edit: impl FnOnce(&mut CalendarDefaults),
+        cx: &mut Context<Self>,
+    ) {
+        let Some(subscription) = self.subscriptions.iter_mut().find(|other| other.id == id) else {
+            return;
+        };
+
+        edit(&mut subscription.defaults);
+
+        let defaults = subscription.defaults;
+
+        for task in self.managed_mut(id).filter(|task| !task.overridden) {
+            defaults.govern(task);
+        }
+
+        self.plan(cx.global::<Clock>().now(), cx);
+        cx.notify();
+    }
+
+    pub fn apply_defaults(&mut self, id: SubscriptionId, cx: &mut Context<Self>) {
+        let defaults = self.defaults(id);
+
+        for task in self.managed_mut(id) {
+            defaults.govern(task);
+            task.overridden = false;
         }
 
         self.plan(cx.global::<Clock>().now(), cx);
@@ -352,17 +387,19 @@ impl Agenda {
 
     fn replace(&mut self, id: SubscriptionId, mut tasks: Vec<Task>, today: NaiveDate) {
         let rolled = (self.planned_on - today).num_days() as i32;
+        let defaults = self.defaults(id);
         let mut claimed = HashSet::new();
 
         for task in &mut tasks {
             task.shift(rolled);
 
-            if let Some(previous) = self
+            match self
                 .tasks
                 .iter()
                 .find(|other| Self::same_event(other, task))
             {
-                task.keep_unmanaged(previous);
+                Some(previous) => task.keep_unmanaged(previous),
+                None => defaults.govern(task),
             }
 
             let previous = self
@@ -379,6 +416,22 @@ impl Agenda {
         self.drop_imported(id);
         self.tasks.extend(tasks);
         self.drop_dangling();
+    }
+
+    fn defaults(&self, id: SubscriptionId) -> CalendarDefaults {
+        self.subscriptions
+            .iter()
+            .find(|subscription| subscription.id == id)
+            .map(|subscription| subscription.defaults)
+            .unwrap_or_default()
+    }
+
+    fn managed_mut(&mut self, id: SubscriptionId) -> impl Iterator<Item = &mut Task> {
+        self.tasks.iter_mut().filter(move |task| {
+            task.source
+                .as_ref()
+                .is_some_and(|source| source.subscription == id)
+        })
     }
 
     fn share_unmanaged(&mut self, task: TaskId) {

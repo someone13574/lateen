@@ -2,11 +2,12 @@ use std::time::Duration;
 
 use chrono::{Local, Timelike};
 use gpui::prelude::*;
-use gpui::{Decorations, Entity, Pixels, Tiling, Window, div, px};
+use gpui::{AnyElement, Decorations, Entity, Pixels, Tiling, Window, div, px};
 
 use crate::agenda::Agenda;
 use crate::bottom_bar::BottomBar;
 use crate::calendar_list::CalendarList;
+use crate::calendar_settings::CalendarSettings;
 use crate::commitment_list::CommitmentList;
 use crate::editor::Editor;
 use crate::now_card::NowCard;
@@ -16,6 +17,7 @@ pub struct Panel {
     agenda: Entity<Agenda>,
     calendars: Entity<CalendarList>,
     editor: Option<Entity<Editor>>,
+    settings: Option<Entity<CalendarSettings>>,
 }
 
 impl Panel {
@@ -34,23 +36,72 @@ impl Panel {
             cx.notify();
         })
         .detach();
+        cx.observe_in(&calendars, window, |panel, _calendars, window, cx| {
+            panel.open_settings(window, cx);
+            cx.notify();
+        })
+        .detach();
         Self::follow_seconds(cx);
 
         Self {
             agenda,
             calendars,
             editor: None,
+            settings: None,
         }
     }
 
     fn sync(&mut self, agenda: &Entity<Agenda>, window: &mut Window, cx: &mut Context<Self>) {
         let selected = agenda.read(cx).selected();
 
+        if selected.is_some() {
+            self.calendars
+                .update(cx, |calendars, cx| calendars.hide_settings(cx));
+        }
+
         if selected != self.editor.as_ref().map(|editor| editor.read(cx).task()) {
             self.editor = selected.map(|task| {
                 cx.new(|cx| Editor::new(agenda.clone(), self.calendars.clone(), task, window, cx))
             });
         }
+    }
+
+    fn column(&self) -> AnyElement {
+        if let Some(settings) = &self.settings {
+            return settings.clone().into_any_element();
+        }
+
+        match &self.editor {
+            Some(editor) => editor.clone().into_any_element(),
+            None => {
+                CommitmentList::new(self.agenda.clone(), self.calendars.clone()).into_any_element()
+            }
+        }
+    }
+
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let shown = self.calendars.read(cx).settings();
+
+        if shown
+            == self
+                .settings
+                .as_ref()
+                .map(|settings| settings.read(cx).subscription())
+        {
+            return;
+        }
+
+        self.settings = shown.map(|subscription| {
+            cx.new(|cx| {
+                CalendarSettings::new(
+                    self.agenda.clone(),
+                    self.calendars.clone(),
+                    subscription,
+                    window,
+                    cx,
+                )
+            })
+        });
     }
 
     fn follow_seconds(cx: &mut Context<Self>) {
@@ -90,10 +141,6 @@ impl Render for Panel {
                 |panel| panel.rounded_br(Self::CORNER_RADIUS),
             )
             .child(NowCard::new(&self.agenda, cx))
-            .child(match &self.editor {
-                Some(editor) => editor.clone().into_any_element(),
-                None => CommitmentList::new(self.agenda.clone(), self.calendars.clone())
-                    .into_any_element(),
-            })
+            .child(self.column())
     }
 }

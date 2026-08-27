@@ -42,6 +42,8 @@ pub struct Task {
     pub source: Option<SubscribedEvent>,
     #[serde(default)]
     pub all_day: bool,
+    #[serde(default)]
+    pub overridden: bool,
 }
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -294,6 +296,7 @@ impl Task {
         self.priority = previous.priority;
         self.prep = previous.prep;
         self.cleanup = previous.cleanup;
+        self.overridden = previous.overridden;
 
         if let (
             TaskKind::Fixed {
@@ -386,6 +389,7 @@ impl Task {
             cancelled: Vec::new(),
             source: None,
             all_day: false,
+            overridden: false,
         }
     }
 }
@@ -489,6 +493,24 @@ pub enum Priority {
 }
 
 impl Priority {
+    pub const ALL: [Self; 5] = [
+        Self::Lowest,
+        Self::Low,
+        Self::Normal,
+        Self::High,
+        Self::Highest,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Lowest => "Lowest",
+            Self::Low => "Low",
+            Self::Normal => "Normal",
+            Self::High => "High",
+            Self::Highest => "Highest",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Lowest => "lowest",

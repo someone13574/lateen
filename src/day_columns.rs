@@ -6,6 +6,7 @@ use gpui::{App, Bounds, Corners, Entity, Pixels, Window, div, point, px, size};
 use crate::agenda::Agenda;
 use crate::block::BlockView;
 use crate::button::ClickHandler;
+use crate::calendar_list::CalendarList;
 use crate::clock::Clock;
 use crate::grid::Grid;
 use crate::session::Outcome;
@@ -18,6 +19,7 @@ pub struct DayColumns {
     day_height: Pixels,
     corners: Corners<Pixels>,
     agenda: Entity<Agenda>,
+    calendars: Entity<CalendarList>,
 }
 
 impl DayColumns {
@@ -25,6 +27,7 @@ impl DayColumns {
         days: usize,
         day_height: Pixels,
         agenda: Entity<Agenda>,
+        calendars: Entity<CalendarList>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&agenda, |_columns, _agenda, cx| cx.notify())
@@ -35,6 +38,7 @@ impl DayColumns {
             day_height,
             corners: Corners::default(),
             agenda,
+            calendars,
         }
     }
 
@@ -107,6 +111,9 @@ impl Render for DayColumns {
             .size_full()
             .on_click(cx.listener(|columns, _event, _window, cx| {
                 columns.agenda.update(cx, Agenda::deselect);
+                columns
+                    .calendars
+                    .update(cx, |calendars, cx| calendars.hide_settings(cx));
             }))
             .child(Grid::new(self.days, self.day_height, self.corners))
             .children(self.blocks(cx))

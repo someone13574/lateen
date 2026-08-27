@@ -2,11 +2,13 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    App, ElementId, FontWeight, MouseButton, Pixels, Point, Rgba, Role, SharedString, Size, Text,
-    Window, div, point, px, size,
+    App, Div, ElementId, FocusHandle, FontWeight, KeyBinding, MouseButton, Pixels, Point, Rgba,
+    Role, SharedString, Size, Text, Window, actions, div, point, px, size,
 };
 
 use crate::theme::ActiveTheme;
+
+actions!(button, [FocusNext, FocusPrevious, Press]);
 
 pub type ClickHandler = dyn Fn(&mut Window, &mut App) + 'static;
 
@@ -35,18 +37,29 @@ pub struct Button {
     filled: bool,
     bare: bool,
     stretch: bool,
-    centered: bool,
     chip: Option<(bool, Rgba)>,
     size: Option<Size<Pixels>>,
     padding: Option<Point<Pixels>>,
     verdict: Option<Verdict>,
     active: Option<(Rgba, Rgba)>,
-    on_click: Option<Box<ClickHandler>>,
+    focus_handle: Option<FocusHandle>,
+    on_click: Option<Rc<ClickHandler>>,
     on_press: Option<Box<ClickHandler>>,
     on_release: Option<Rc<ClickHandler>>,
 }
 
 impl Button {
+    pub const KEY_CONTEXT: &'static str = "Button";
+
+    pub fn init(cx: &mut App) {
+        cx.bind_keys([
+            KeyBinding::new("enter", Press, Some(Self::KEY_CONTEXT)),
+            KeyBinding::new("space", Press, Some(Self::KEY_CONTEXT)),
+            KeyBinding::new("tab", FocusNext, Some(Self::KEY_CONTEXT)),
+            KeyBinding::new("shift-tab", FocusPrevious, Some(Self::KEY_CONTEXT)),
+        ]);
+    }
+
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
         Self {
             id: id.into(),
@@ -55,12 +68,12 @@ impl Button {
             filled: false,
             bare: false,
             stretch: false,
-            centered: false,
             chip: None,
             size: None,
             padding: None,
             verdict: None,
             active: None,
+            focus_handle: None,
             on_click: None,
             on_press: None,
             on_release: None,
@@ -103,11 +116,6 @@ impl Button {
         self
     }
 
-    pub fn centered(mut self) -> Self {
-        self.centered = true;
-        self
-    }
-
     pub fn chip(mut self, selected: bool, unselected_fg: Rgba) -> Self {
         self.chip = Some((selected, unselected_fg));
         self
@@ -118,8 +126,13 @@ impl Button {
         self
     }
 
+    pub fn focus(mut self, focus_handle: &FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle.clone());
+        self
+    }
+
     pub fn on_click(mut self, on_click: Box<ClickHandler>) -> Self {
-        self.on_click = Some(on_click);
+        self.on_click = Some(Rc::from(on_click));
         self
     }
 
@@ -132,10 +145,20 @@ impl Button {
         self.on_release = Some(Rc::from(on_release));
         self
     }
+
+    fn ring(radius: Pixels, color: Rgba) -> Div {
+        div()
+            .absolute()
+            .inset(px(-1.0))
+            .border(px(2.0))
+            .rounded(radius + px(1.0))
+            .border_color(color)
+    }
 }
 
 impl RenderOnce for Button {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let on_click = self.on_click.clone();
         let (radius, text_size) = if self.small {
             (px(4.0), px(11.0))
         } else {
@@ -156,9 +179,7 @@ impl RenderOnce for Button {
             .items_center()
             .when(self.stretch, |button| button.flex_1())
             .when(!self.stretch, |button| button.flex_none())
-            .when(self.stretch || self.centered, |button| {
-                button.justify_center()
-            })
+            .when(self.stretch, |button| button.justify_center())
             .px(padding.x)
             .py(padding.y)
             .text_size(text_size)
@@ -248,10 +269,34 @@ impl RenderOnce for Button {
                         outside(window, cx);
                     })
             })
+            .when_some(self.focus_handle, |button, focus_handle| {
+                let press = on_click.clone();
+
+                button
+                    .relative()
+                    .key_context(Self::KEY_CONTEXT)
+                    .track_focus(&focus_handle)
+                    .on_action(move |_: &Press, window, cx| {
+                        if let Some(press) = &press {
+                            press(window, cx);
+                        }
+                    })
+                    .on_action(|_: &FocusNext, window: &mut Window, cx: &mut App| {
+                        window.focus_next(cx)
+                    })
+                    .on_action(|_: &FocusPrevious, window: &mut Window, cx: &mut App| {
+                        window.focus_prev(cx)
+                    })
+                    .when(focus_handle.is_focused(window), |button| {
+                        button
+                            .border_color(cx.theme().input_ring)
+                            .child(Self::ring(radius, cx.theme().input_ring))
+                    })
+            })
             .on_click(move |_event, window, cx| {
                 cx.stop_propagation();
 
-                if let Some(on_click) = &self.on_click {
+                if let Some(on_click) = &on_click {
                     on_click(window, cx);
                 }
             })

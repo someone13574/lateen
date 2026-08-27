@@ -7,7 +7,7 @@ use gpui::{
 use crate::agenda::Agenda;
 use crate::assets::Assets;
 use crate::bottom_bar::BottomBar;
-use crate::button::ClickHandler;
+use crate::button::{Button, ClickHandler};
 use crate::calendar::Calendar;
 use crate::calendar_list::CalendarList;
 use crate::clock::{Clock, ClockFormat};
@@ -28,6 +28,7 @@ mod bottom_bar;
 mod button;
 mod calendar;
 mod calendar_list;
+mod calendar_settings;
 mod clock;
 mod colorer;
 mod commitment_list;
@@ -125,6 +126,7 @@ fn main() {
     gpui_platform::application().with_assets(Assets).run(|cx| {
         Assets::load_fonts(cx).expect("failed to load embedded fonts");
         gpui_tokio::init(cx);
+        Button::init(cx);
         Clock::init(cx);
         ClockFormat::init(cx);
         Editor::init(cx);
@@ -152,7 +154,7 @@ fn main() {
             Notifier::init(agenda.clone(), cx);
 
             cx.new(|cx| RootView {
-                calendar: cx.new(|cx| Calendar::new(agenda.clone(), cx)),
+                calendar: cx.new(|cx| Calendar::new(agenda.clone(), calendars.clone(), cx)),
                 panel: cx.new(|cx| Panel::new(agenda.clone(), calendars.clone(), window, cx)),
                 bottom_bar: BottomBar::enabled().then(|| cx.new(BottomBar::new)),
                 agenda,

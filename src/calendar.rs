@@ -11,6 +11,7 @@ use gpui::{
 
 use crate::agenda::Agenda;
 use crate::block::Block;
+use crate::calendar_list::CalendarList;
 use crate::clock::{Clock, ClockFormat};
 use crate::cursor::Cursor;
 use crate::day_columns::DayColumns;
@@ -45,7 +46,11 @@ impl Calendar {
     const DAYS: usize = Agenda::HORIZON as usize;
     const ZOOM_RATE: f32 = 0.002;
 
-    pub fn new(agenda: Entity<Agenda>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        agenda: Entity<Agenda>,
+        calendars: Entity<CalendarList>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let day_height = px(1440.0);
         Self::follow_cursor(cx);
         cx.observe(&agenda, |_calendar, _agenda, cx| cx.notify())
@@ -55,7 +60,8 @@ impl Calendar {
             horizontal: ScrollHandle::new(),
             vertical: ScrollHandle::new(),
             day_height,
-            day_columns: cx.new(|cx| DayColumns::new(Self::DAYS, day_height, agenda.clone(), cx)),
+            day_columns: cx
+                .new(|cx| DayColumns::new(Self::DAYS, day_height, agenda.clone(), calendars, cx)),
             agenda,
             revealed: false,
         }

@@ -2,19 +2,23 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Local, Timelike};
 use gpui::prelude::*;
-use gpui::{App, Div, Entity, Focusable, FontWeight, Role, SharedString, Text, Window, div, px};
+use gpui::{
+    App, ClickEvent, Div, Entity, Focusable, FontWeight, Role, SharedString, Stateful, Text,
+    Window, div, px,
+};
 
 use crate::agenda::Agenda;
-use crate::button::{Button, ClickHandler};
+use crate::button::Button;
 use crate::clock::{Clock, ClockFormat};
 use crate::input::{Entry, Input, InputEvent, InputState};
 use crate::selectable_text::SelectableText;
 use crate::subscription::{Subscription, SubscriptionId};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, Theme};
 use crate::tooltip::{Tooltip, TooltipBuilder, Tooltipped};
 
 pub struct CalendarList {
     open: bool,
+    settings: Option<SubscriptionId>,
     agenda: Entity<Agenda>,
     url: Entity<InputState>,
 }
@@ -32,25 +36,39 @@ impl CalendarList {
 
         Self {
             open: false,
+            settings: None,
             agenda,
             url,
         }
     }
 
-    pub fn toggle(&mut self, cx: &mut Context<Self>) {
-        self.open = !self.open;
+    pub fn settings(&self) -> Option<SubscriptionId> {
+        self.settings
+    }
+
+    pub fn show_settings(&mut self, id: SubscriptionId, cx: &mut Context<Self>) {
+        self.open = true;
+        self.settings = Some(id);
         cx.notify();
     }
 
-    pub fn open(&mut self, cx: &mut Context<Self>) {
-        self.open = true;
+    pub fn hide_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings = None;
+        cx.notify();
+    }
+
+    pub fn toggle(&mut self, cx: &mut Context<Self>) {
+        self.open = self.settings.take().is_some() || !self.open;
         cx.notify();
     }
 
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.open = false;
+        self.settings = None;
         cx.notify();
     }
+
+    const ROW_GROUP: &'static str = "calendar-row";
 
     fn card(&self, list: &Entity<Self>, cx: &App) -> Div {
         let subscriptions = self.agenda.read(cx).subscriptions();
@@ -68,14 +86,26 @@ impl CalendarList {
                     subscriptions
                         .iter()
                         .enumerate()
-                        .map(|(index, subscription)| self.row(index, subscription, cx)),
+                        .map(|(index, subscription)| self.row(index, subscription, list, cx)),
                 ),
             )
             .child(self.add_row(list))
     }
 
-    fn row(&self, index: usize, subscription: &Subscription, cx: &App) -> Div {
+    fn row(
+        &self,
+        index: usize,
+        subscription: &Subscription,
+        list: &Entity<Self>,
+        cx: &App,
+    ) -> Stateful<Div> {
+        let theme = *cx.theme();
+
         div()
+            .id(("calendar", index))
+            .role(Role::Button)
+            .aria_label(subscription.name.clone())
+            .group(Self::ROW_GROUP)
             .flex()
             .items_center()
             .gap(px(9.0))
@@ -83,10 +113,33 @@ impl CalendarList {
             .py(px(8.0))
             .rounded(px(6.0))
             .border(px(1.0))
-            .border_color(cx.theme().rule)
-            .bg(cx.theme().card_bg)
+            .border_color(theme.rule)
+            .bg(theme.card_bg)
+            .cursor_pointer()
+            .hover(|style| style.border_color(theme.chip_border).bg(theme.row_hover_bg))
+            .on_click(Self::opener(list, subscription.id))
             .child(self.describe(index, subscription, cx))
-            .child(Self::actions(index, subscription.id, &self.agenda, cx))
+            .child(Self::chevron(theme))
+    }
+
+    fn chevron(theme: Theme) -> Div {
+        div()
+            .flex_none()
+            .text_size(px(13.0))
+            .text_color(theme.faint_fg)
+            .group_hover(Self::ROW_GROUP, |style| style.text_color(theme.link_fg))
+            .child(Text::new_inaccessible("\u{203a}".into()))
+    }
+
+    fn opener(
+        list: &Entity<Self>,
+        id: SubscriptionId,
+    ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+        let list = list.clone();
+
+        move |_event, _window, cx| {
+            list.update(cx, |list, cx| list.show_settings(id, cx));
+        }
     }
 
     fn describe(&self, index: usize, subscription: &Subscription, cx: &App) -> Div {
@@ -138,7 +191,7 @@ impl CalendarList {
         })
     }
 
-    fn status(&self, subscription: &Subscription, cx: &App) -> SharedString {
+    pub fn status(&self, subscription: &Subscription, cx: &App) -> SharedString {
         let Some(synced) = subscription.synced.filter(|_| !subscription.syncing) else {
             return "Syncing".into();
         };
@@ -220,46 +273,6 @@ impl CalendarList {
                     })
                     .child(Text::new_inaccessible("Close".into())),
             )
-    }
-
-    fn actions(index: usize, id: SubscriptionId, agenda: &Entity<Agenda>, cx: &App) -> Div {
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .gap(px(3.0))
-            .child(
-                Button::new(("sync-calendar", index), "Sync")
-                    .small()
-                    .centered()
-                    .padding(px(8.0), px(3.0))
-                    .chip(false, cx.theme().muted_fg)
-                    .on_click(Self::sync(agenda, id)),
-            )
-            .child(
-                Button::new(("remove-calendar", index), "Remove")
-                    .small()
-                    .centered()
-                    .padding(px(8.0), px(3.0))
-                    .chip(false, cx.theme().danger_fg)
-                    .on_click(Self::remove(agenda, id)),
-            )
-    }
-
-    fn sync(agenda: &Entity<Agenda>, id: SubscriptionId) -> Box<ClickHandler> {
-        let agenda = agenda.clone();
-
-        Box::new(move |_window, cx| {
-            agenda.update(cx, |agenda, cx| agenda.sync(id, cx));
-        })
-    }
-
-    fn remove(agenda: &Entity<Agenda>, id: SubscriptionId) -> Box<ClickHandler> {
-        let agenda = agenda.clone();
-
-        Box::new(move |_window, cx| {
-            agenda.update(cx, |agenda, cx| agenda.unsubscribe(id, cx));
-        })
     }
 
     fn add(&mut self, cx: &mut Context<Self>) {
